@@ -30,3 +30,40 @@
 // @downloadURL  
 // @updateURL    
 // ==/UserScript==
+//★ 구매
+const autoClickAllButtons = () => {
+
+    // Notifications 버튼 찾기
+    const notificationBtn = document.querySelector('button[aria-label="Notifications"]');
+
+    // 있으면 먼저 클릭
+    if (notificationBtn) {
+        notificationBtn.click();
+        console.log('🔔 Notifications 열기');
+
+    setTimeout(() => {
+        notificationBtn.click();
+        console.log('🔔 Notifications 닫기');
+    }, 500);
+    }
+
+    // 잠깐 기다렸다가 Buy all 클릭
+    setTimeout(() => {
+
+        const allButtons = Array.from(document.querySelectorAll('button'))
+            .filter(btn => btn.textContent.trim() === 'Buy all');
+
+        allButtons.forEach(btn => {
+            if (btn && !btn.disabled) {
+                btn.click();
+                console.log('✅ Buy all 버튼 클릭');
+            }
+        });
+
+    }, 1000); // 1초 기다림
+};
+
+// 10초 뒤 시작 + 2분마다 반복
+setTimeout(autoClickAllButtons, 20000);
+setInterval(autoClickAllButtons, 1 * 60 * 1000);
+//요기가 끝
