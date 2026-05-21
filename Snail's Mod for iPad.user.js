@@ -30,6 +30,7 @@
 // @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod%20for%20iPad.user.js
 // ==/UserScript==
 
+//이 모드는 Arie's Mod를 사용할 때, 업데이트로부터 자유로우면서 추가 옵션을 사용하고자 할 때 만들었습니다.
 
 //★ 구매
 const autoClickAllButtons = () => {
