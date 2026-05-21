@@ -8,7 +8,6 @@
 // @match        https://starweaver.org/r/*
 // @match        https://ariesmod-api.ariedam.fr/*
 // @run-at       document-idle
-// @inject-into  page
 // @grant        GM_xmlhttpRequest
 // @grant        GM_info
 // @grant        GM_openInTab
@@ -26,10 +25,12 @@
 // @connect      magicgarden.gg
 // @connect      i.imgur.com
 // @connect      cdn.discordapp.com
-
+// @description  o.o_b
 // @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // ==/UserScript==
+
+
 //★ 구매
 const autoClickAllButtons = () => {
 
