@@ -27,8 +27,8 @@
 // @connect      i.imgur.com
 // @connect      cdn.discordapp.com
 
-// @downloadURL  
-// @updateURL    
+// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
+// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // ==/UserScript==
 //★ 구매
 const autoClickAllButtons = () => {
