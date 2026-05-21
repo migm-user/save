@@ -33,41 +33,44 @@
 //이 모드는 Arie's Mod를 사용할 때, 업데이트로부터 자유로우면서 추가 옵션을 사용하고자 할 때 만들었습니다.
 
 //★ 구매
-const autoClickAllButtons = () => {
+(function() {
+    'use strict';
 
-    // Notifications 버튼 찾기
-    const notificationBtn = document.querySelector('button[aria-label="Notifications"]');
+    // ==========================================
+    // 자동 구매 로직
+    // ==========================================
+    function autoBuyAlertItems() {
+        const alertIconSelector = 'button[aria-label="Notifications"]';
+        const alertIconBtn = document.querySelector(alertIconSelector);
 
-    // 있으면 먼저 클릭
-    if (notificationBtn) {
-        notificationBtn.click();
-        console.log('🔔 Notifications 열기');
+        if (alertIconBtn) {
+            const img = alertIconBtn.querySelector('img');
+            const isRinging = img && img.style.animation.includes('qwsBellShake');
 
-    setTimeout(() => {
-        notificationBtn.click();
-        console.log('🔔 Notifications 닫기');
-    }, 500);
-    }
+            if (isRinging) {
+                alertIconBtn.click();
+                setTimeout(() => {
+                    const dialog = document.querySelector('div[role="dialog"][aria-label="Tracked items available"]');
+                    if (dialog) {
+                        const buttons = Array.from(dialog.querySelectorAll('button'));
+                        const buyAllButtons = buttons.filter(btn => btn.innerText.trim().toLowerCase() === 'buy all');
 
-    // 잠깐 기다렸다가 Buy all 클릭
-    setTimeout(() => {
-
-        const allButtons = Array.from(document.querySelectorAll('button'))
-            .filter(btn => btn.textContent.trim() === 'Buy all');
-
-        allButtons.forEach(btn => {
-            if (btn && !btn.disabled) {
-                btn.click();
-                console.log('✅ Buy all 버튼 클릭');
+                        if (buyAllButtons.length > 0) {
+                            buyAllButtons.forEach(btn => btn.click());
+                            setTimeout(() => alertIconBtn.click(), 500);
+                        } else {
+                            alertIconBtn.click();
+                        }
+                    } else {
+                        alertIconBtn.click();
+                    }
+                }, 500);
             }
-        });
+        }
+    }
+    setInterval(autoBuyAlertItems, 10000);
 
-    }, 1000); // 1초 기다림
-};
-
-// 10초 뒤 시작 + 2분마다 반복
-setTimeout(autoClickAllButtons, 20000);
-setInterval(autoClickAllButtons, 1 * 60 * 1000);
+})();
 //요기가 끝
 
 //Alt X 들어올때마다 한번씩 눌러주기
