@@ -1,0 +1,32 @@
+// ==UserScript==
+// @name         Snail's Mod
+// @namespace    @_"
+// @version      1.2.0
+// @match        https://1227719606223765687.discordsays.com/*
+// @match        https://magiccircle.gg/r/*
+// @match        https://magicgarden.gg/r/*
+// @match        https://starweaver.org/r/*
+// @match        https://ariesmod-api.ariedam.fr/*
+// @run-at       document-idle
+// @inject-into  page
+// @grant        GM_xmlhttpRequest
+// @grant        GM_info
+// @grant        GM_openInTab
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @grant        GM_download
+// @connect      raw.githubusercontent.com
+// @connect      api.github.com
+// @connect      ariesmod-api.ariedam.fr
+// @connect      mg-api.ariedam.fr
+// @connect      ariedam.fr
+// @connect      cdn.pixabay.com
+// @connect      cdn.jsdelivr.net
+// @connect      magicgarden.gg
+// @connect      i.imgur.com
+// @connect      cdn.discordapp.com
+
+// @downloadURL  
+// @updateURL    
+// ==/UserScript==
