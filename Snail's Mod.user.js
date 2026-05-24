@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Snail's Mod
 // @namespace    O_"
-// @version      1.2.1
+// @version      1.2.2
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -32,99 +32,37 @@
 
 //이 모드는 Arie's Mod를 사용할 때, 업데이트로부터 자유로우면서 추가 옵션을 사용하고자 할 때 만들었습니다.
 
-//★ 구매
-(function () {
-    'use strict';
+//★구매
 
-    // 중복 실행 방지
-    let isProcessing = false;
+const autoClickAllButtons = () => {
 
-    function autoBuyAlertItems() {
+    // Notifications 버튼 찾기
+    const notificationBtn = document.querySelector('button[aria-label="Notifications"]');
 
-        // 이미 실행 중이면 종료
-        if (isProcessing) return;
-
-        const alertIconBtn = document.querySelector(
-            'button[aria-label="Notifications"]'
-        );
-
-        if (!alertIconBtn) return;
-
-        const img = alertIconBtn.querySelector('img');
-
-        // 안전하게 animation 검사
-        const animation = img?.style?.animation || '';
-
-        // 벨 안 흔들리면 종료
-        if (!animation.includes('qwsBellShake')) return;
-
-        isProcessing = true;
-
-        console.log('🔔 알림 감지');
-
-        // Notifications 열기
-        alertIconBtn.click();
-
-        setTimeout(() => {
-
-            const dialog = document.querySelector(
-                'div[role="dialog"][aria-label="Tracked items available"]'
-            );
-
-            if (!dialog) {
-
-                console.log('❌ Dialog 못 찾음');
-
-                alertIconBtn.click();
-                isProcessing = false;
-                return;
-
-            }
-
-            // Buy all 버튼 찾기
-            const buyAllButtons = Array.from(
-                dialog.querySelectorAll('button')
-            ).filter(btn =>
-                btn.innerText.trim().toLowerCase() === 'buy all'
-            );
-
-            // 버튼 클릭
-            if (buyAllButtons.length > 0) {
-
-                buyAllButtons.forEach(btn => {
-
-                    if (!btn.disabled) {
-
-                        btn.click();
-                        console.log('✅ Buy all 클릭');
-
-                    }
-
-                });
-
-            } else {
-
-                console.log('❌ Buy all 없음');
-
-            }
-
-            // 창 닫기
-            setTimeout(() => {
-
-                alertIconBtn.click();
-                console.log('📕 Notifications 닫기');
-
-                isProcessing = false;
-
-            }, 500);
-
-        }, 500);
+    // 있으면 먼저 클릭
+    if (notificationBtn) {
+        notificationBtn.click();
+        console.log('🔔 Notifications 열기');
     }
 
-    // 10초마다 검사
-    setInterval(autoBuyAlertItems, 10000);
+    // 잠깐 기다렸다가 Buy all 클릭
+    setTimeout(() => {
 
-    console.log('🚀 Auto Buy Started');
+        const allButtons = Array.from(document.querySelectorAll('button'))
+            .filter(btn => btn.textContent.trim() === 'Buy all');
 
-})();
+        allButtons.forEach(btn => {
+            if (btn && !btn.disabled) {
+                btn.click();
+                console.log('✅ Buy all 버튼 클릭');
+            }
+        });
+
+    }, 1000); // 1초 기다림
+};
+
+// 10초 뒤 시작 + 1분마다 반복
+setTimeout(autoClickAllButtons, 10000);
+setInterval(autoClickAllButtons, 1 * 60 * 1000);
+
 //요기가 끝
