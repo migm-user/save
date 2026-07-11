@@ -33,7 +33,7 @@
 (function () {
     'use strict';
 
-    const FIRST_RUN_DELAY = 10000;
+    const FIRST_RUN_DELAY = 15000;
     const REPEAT_INTERVAL = 120000;
 
     const BELL_LABEL = 'GeminiNotificationBell';
