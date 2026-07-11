@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Snail's Mod
 // @namespace    O_"
-// @version      1.2.2
+// @version      1.3.1
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -25,44 +25,346 @@
 // @connect      magicgarden.gg
 // @connect      i.imgur.com
 // @connect      cdn.discordapp.com
-// @description  o.o_b
+// @description  o.o_b & junhwan
 // @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // ==/UserScript==
 
-//이 모드는 Arie's Mod를 사용할 때, 업데이트로부터 자유로우면서 추가 옵션을 사용하고자 할 때 만들었습니다.
+(function () {
+    'use strict';
 
-//★구매
+    const FIRST_RUN_DELAY = 10000;
+    const REPEAT_INTERVAL = 120000;
 
-const autoClickAllButtons = () => {
+    const BELL_LABEL = 'GeminiNotificationBell';
 
-    // Notifications 버튼 찾기
-    const notificationBtn = document.querySelector('button[aria-label="Notifications"]');
+    const BELL_TIMEOUT = 30000;
+    const BUTTON_TIMEOUT = 5000;
 
-    // 있으면 먼저 클릭
-    if (notificationBtn) {
-        notificationBtn.click();
-        console.log('🔔 Notifications 열기');
+    let running = false;
+    let cachedBell = null;
+
+    const sleep = ms =>
+        new Promise(resolve => setTimeout(resolve, ms));
+
+    function pageWin() {
+        try {
+            return unsafeWindow || window;
+        } catch {
+            return window;
+        }
     }
 
-    // 잠깐 기다렸다가 Buy all 클릭
-    setTimeout(() => {
+    function getState() {
+        const w = pageWin();
 
-        const allButtons = Array.from(document.querySelectorAll('button'))
-            .filter(btn => btn.textContent.trim() === 'Buy all');
+        return (
+            w.__MG_SPRITE_STATE__ ||
+            window.__MG_SPRITE_STATE__ ||
+            null
+        );
+    }
 
-        allButtons.forEach(btn => {
-            if (btn && !btn.disabled) {
-                btn.click();
-                console.log('✅ Buy all 버튼 클릭');
+    function getStage(state) {
+        if (!state) return null;
+
+        return (
+            state.app?.stage ||
+            state.renderer?.stage ||
+            state.renderer?.lastObjectRendered ||
+            null
+        );
+    }
+
+    function getCanvas(state) {
+        if (!state) return null;
+
+        const renderer =
+            state.renderer ||
+            state.app?.renderer;
+
+        if (!renderer) return null;
+
+        return (
+            renderer.canvas ||
+            renderer.view?.canvas ||
+            renderer.view ||
+            null
+        );
+    }
+
+    function findLabel(root, label) {
+        if (!root) return null;
+
+        const stack = [root];
+
+        while (stack.length) {
+            const node = stack.pop();
+
+            if (!node) continue;
+
+            if (
+                node.label === label ||
+                node.name === label
+            ) {
+                return node;
             }
-        });
 
-    }, 1000); // 1초 기다림
-};
+            if (Array.isArray(node.children)) {
+                for (const child of node.children) {
+                    stack.push(child);
+                }
+            }
+        }
 
-// 10초 뒤 시작 + 1분마다 반복
-setTimeout(autoClickAllButtons, 10000);
-setInterval(autoClickAllButtons, 1 * 60 * 1000);
+        return null;
+    }
 
-//요기가 끝
+    async function getBell() {
+
+        if (
+            cachedBell &&
+            !cachedBell.destroyed
+        ) {
+            return cachedBell;
+        }
+
+        const start = Date.now();
+
+        while (
+            Date.now() - start <
+            BELL_TIMEOUT
+        ) {
+            const state = getState();
+            const stage = getStage(state);
+
+            const bell =
+                findLabel(
+                    stage,
+                    BELL_LABEL
+                );
+
+            if (
+                bell &&
+                !bell.destroyed
+            ) {
+                cachedBell = bell;
+                return bell;
+            }
+
+            await sleep(250);
+        }
+
+        return null;
+    }
+
+    function getBellPosition(
+        canvas,
+        bell
+    ) {
+
+        try {
+
+            const rect =
+                canvas.getBoundingClientRect();
+
+            const p1 =
+                bell.toGlobal({
+                    x: 0,
+                    y: 0
+                });
+
+            const p2 =
+                bell.toGlobal({
+                    x: 45,
+                    y: 45
+                });
+
+            return {
+                x:
+                    rect.left +
+                    (p1.x + p2.x) / 2,
+
+                y:
+                    rect.top +
+                    (p1.y + p2.y) / 2
+            };
+
+        } catch {
+
+            return null;
+        }
+    }
+
+    async function clickBell() {
+
+        const state = getState();
+        const canvas = getCanvas(state);
+
+        const bell =
+            await getBell();
+
+        if (
+            !bell ||
+            !canvas
+        ) {
+            return false;
+        }
+
+        const pos =
+            getBellPosition(
+                canvas,
+                bell
+            );
+
+        if (!pos) {
+            cachedBell = null;
+            return false;
+        }
+
+        const common = {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            clientX: pos.x,
+            clientY: pos.y,
+            button: 0,
+            buttons: 1,
+            pointerType: 'mouse',
+            pointerId: 1,
+            isPrimary: true
+        };
+
+        canvas.dispatchEvent(
+            new PointerEvent(
+                'pointerdown',
+                common
+            )
+        );
+
+        canvas.dispatchEvent(
+            new PointerEvent(
+                'pointerup',
+                common
+            )
+        );
+
+        return true;
+    }
+
+    function visible(el) {
+
+        if (
+            !el ||
+            !el.isConnected
+        ) {
+            return false;
+        }
+
+        const rect =
+            el.getBoundingClientRect();
+
+        return (
+            rect.width > 0 &&
+            rect.height > 0
+        );
+    }
+
+    function findBuyAllButtons() {
+
+        return [...document.querySelectorAll('button')]
+            .filter(btn =>
+                visible(btn) &&
+                !btn.disabled &&
+                btn.textContent?.trim() ===
+                'Buy all'
+            );
+    }
+
+    async function waitButtons() {
+
+        const start =
+            Date.now();
+
+        while (
+            Date.now() - start <
+            BUTTON_TIMEOUT
+        ) {
+
+            const buttons =
+                findBuyAllButtons();
+
+            if (
+                buttons.length
+            ) {
+                return buttons;
+            }
+
+            await sleep(200);
+        }
+
+        return [];
+    }
+
+    async function autoBuy() {
+
+        if (running) {
+            return;
+        }
+
+        running = true;
+
+        let opened = false;
+
+        try {
+
+            let buttons =
+                findBuyAllButtons();
+
+            if (
+                !buttons.length
+            ) {
+
+                const ok =
+                    await clickBell();
+
+                if (!ok) {
+                    return;
+                }
+
+                opened = true;
+
+                buttons =
+                    await waitButtons();
+            }
+
+            for (const btn of buttons) {
+
+                try {
+                    btn.click();
+                } catch {}
+            }
+
+            await sleep(1500);
+
+            if (opened) {
+                await clickBell();
+            }
+
+        } finally {
+
+            running = false;
+        }
+    }
+
+    setTimeout(
+        autoBuy,
+        FIRST_RUN_DELAY
+    );
+
+    setInterval(
+        autoBuy,
+        REPEAT_INTERVAL
+    );
+
+})();
