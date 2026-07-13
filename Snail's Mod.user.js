@@ -2,7 +2,7 @@
 // @name         Snail's Mod
 // @namespace    O_"
 // @author       O_"
-// @version      1.4.2
+// @version      1.4.3
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -56,7 +56,8 @@ function clickNotificationBell() {
             bellWarningShown = true;
 
             alert(
-`Floating Bell을 찾을 수 없습니다.
+`이 메세지는 Snail's Mod 사용자에게 전송 되는 것입니다.
+자동으로 구매를 하기 위해 필요한 Floating Bell을 찾을 수 없습니다.
 
 Alerts → Settings → Floating bell [On]
 
