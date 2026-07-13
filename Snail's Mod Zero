@@ -17,9 +17,6 @@
 // @grant        GM_download
 // @connect      raw.githubusercontent.com
 // @connect      api.github.com
-// @connect      ariesmod-api.ariedam.fr
-// @connect      mg-api.ariedam.fr
-// @connect      ariedam.fr
 // @connect      cdn.pixabay.com
 // @connect      cdn.jsdelivr.net
 // @connect      magicgarden.gg
@@ -32,52 +29,52 @@
 
 //★ 자동 구매
 
-const autoClickAllButtons = () => {
+async function autoBuy() {
 
-    // Floating Notification 버튼 찾기
-    const notificationBtn = document.querySelector(
-        'button[data-notification-bell-widget]'
+    // 플로팅 알림 버튼 찾기
+    const bell = document.querySelector(
+        'button[data-notification-bell-widget="1"]'
     );
 
-    if (!notificationBtn) {
-        console.log('🔔 Floating Notification 버튼을 찾지 못했습니다.');
+    if (!bell) {
+        console.log("🔔 Notification 버튼 없음");
         return;
     }
 
-    // 팝업 열기
-    notificationBtn.click();
-    console.log('🔔 Notifications 열기');
+    // 알림창 열기
+    bell.click();
+
+    // 패널이 열릴 시간 대기
+    await new Promise(r => setTimeout(r, 300));
 
     // Buy all 클릭
-    setTimeout(() => {
+    const buttons = [...document.querySelectorAll("button")]
+        .filter(btn =>
+            btn.textContent.trim() === "Buy all" &&
+            !btn.disabled &&
+            btn.offsetParent !== null
+        );
 
-        const allButtons = [...document.querySelectorAll("button")]
-            .filter(btn =>
-                btn.textContent.trim().toLowerCase() === "buy all" &&
-                !btn.disabled
-            );
+    if (buttons.length === 0) {
+        console.log("구매할 상품 없음");
+    }
 
-        if (allButtons.length === 0) {
-            console.log("📦 Buy all 버튼 없음");
-        }
+    buttons.forEach(btn => {
+        btn.click();
+        console.log("✅ Buy all");
+    });
 
-        allButtons.forEach(btn => {
-            btn.click();
-            console.log("✅ Buy all 클릭");
-        });
+    // 서버 처리 대기
+    await new Promise(r => setTimeout(r, 500));
 
-        // 팝업 닫기
-        setTimeout(() => {
-            notificationBtn.click();
-            console.log("🔔 Notifications 닫기");
-        }, 500);
+    // 패널 닫기
+    bell.click();
+}
 
-    }, 500);
-};
+// 15초 후 시작
+setTimeout(autoBuy, 15000);
 
-
-// 10초 뒤 시작 + 1분마다 반복
-setTimeout(autoClickAllButtons, 10000);
-setInterval(autoClickAllButtons, 1 * 60 * 1000);
+// 이후 1분마다
+setInterval(autoBuy, 60000);
 
 //요기가 끝
