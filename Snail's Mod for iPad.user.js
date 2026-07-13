@@ -32,45 +32,83 @@
 
 //이 모드는 Arie's Mod를 사용할 때, 업데이트로부터 자유로우면서 추가 옵션을 사용하고자 할 때 만들었습니다.
 
-//★ 구매
-(function() {
-    'use strict';
+//★ 자동 구매
 
-    // ==========================================
-    // 자동 구매 로직
-    // ==========================================
-    function autoBuyAlertItems() {
-        const alertIconSelector = 'button[aria-label="Notifications"]';
-        const alertIconBtn = document.querySelector(alertIconSelector);
-
-        if (alertIconBtn) {
-            const img = alertIconBtn.querySelector('img');
-            const isRinging = img && img.style.animation.includes('qwsBellShake');
-
-            if (isRinging) {
-                alertIconBtn.click();
-                setTimeout(() => {
-                    const dialog = document.querySelector('div[role="dialog"][aria-label="Tracked items available"]');
-                    if (dialog) {
-                        const buttons = Array.from(dialog.querySelectorAll('button'));
-                        const buyAllButtons = buttons.filter(btn => btn.innerText.trim().toLowerCase() === 'buy all');
-
-                        if (buyAllButtons.length > 0) {
-                            buyAllButtons.forEach(btn => btn.click());
-                            setTimeout(() => alertIconBtn.click(), 500);
-                        } else {
-                            alertIconBtn.click();
-                        }
-                    } else {
-                        alertIconBtn.click();
-                    }
-                }, 500);
-            }
+const FIRST_DELAY = 10000;
+const INTERVAL = 60000;
+let autoBuying = false;
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+function clickNotificationBell() {
+    const bell = document.querySelector('button[data-notification-bell-widget="1"]');
+    if (!bell) return false;
+    const r = bell.getBoundingClientRect();
+    bell.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        buttons: 1,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2
+    }));
+    document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        buttons: 0,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2
+    }));
+    return true;
+}
+function getBuyAllButtons() {
+    return [...document.querySelectorAll("button")].filter(btn =>
+        btn.isConnected &&
+        !btn.disabled &&
+        btn.offsetParent !== null &&
+        btn.textContent.trim() === "Buy all"
+    );
+}
+async function autoBuy() {
+    if (autoBuying) return;
+    autoBuying = true;
+    try {
+        // Bell 열기
+        if (!clickNotificationBell()) {
+            console.log("🔔 Floating Bell 없음");
+            return;
         }
+        // Buy all 버튼 생성 대기
+        let buttons = [];
+        for (let i = 0; i < 15; i++) {
+            await sleep(100);
+            buttons = getBuyAllButtons();
+            if (buttons.length) break;
+        }
+        if (buttons.length) {
+            console.log(`🛒 Buy all ${buttons.length}개`);
+            for (const btn of buttons) {
+                btn.click();
+            }
+            await sleep(500);
+        } else {
+            console.log("구매할 상품 없음");
+        }
+        // Bell 닫기
+        clickNotificationBell();
+    } catch (e) {
+        console.error(e);
+    } finally {
+        autoBuying = false;
     }
-    setInterval(autoBuyAlertItems, 10000);
-
-})();
+}
+setTimeout(autoBuy, FIRST_DELAY);
+setInterval(autoBuy, INTERVAL);
 //요기가 끝
 
 //Alt X 들어올때마다 한번씩 눌러주기
