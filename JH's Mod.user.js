@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Snail's Mod
-// @namespace    O_"
-// @version      1.3.51
+// @name         JH's Auto Mod
+// @namespace    junhwan
+// @version      1.1.1
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -25,9 +25,9 @@
 // @connect      magicgarden.gg
 // @connect      i.imgur.com
 // @connect      cdn.discordapp.com
-// @description  o.o_b & junhwan Made
-// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
-// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
+// @description  junhwan Made
+// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/JH's%20Mod.user.js
+// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/JH's%20Mod.user.js
 // ==/UserScript==
 
 (function () {
