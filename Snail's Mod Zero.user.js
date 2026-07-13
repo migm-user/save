@@ -29,52 +29,108 @@
 
 //★ 자동 구매
 
-async function autoBuy() {
+const FIRST_DELAY = 10000;
+const INTERVAL = 60000;
 
-    // 플로팅 알림 버튼 찾기
-    const bell = document.querySelector(
-        'button[data-notification-bell-widget="1"]'
-    );
+let autoBuying = false;
 
-    if (!bell) {
-        console.log("🔔 Notification 버튼 없음");
-        return;
-    }
-
-    // 알림창 열기
-    bell.click();
-
-    // 패널이 열릴 시간 대기
-    await new Promise(r => setTimeout(r, 300));
-
-    // Buy all 클릭
-    const buttons = [...document.querySelectorAll("button")]
-        .filter(btn =>
-            btn.textContent.trim() === "Buy all" &&
-            !btn.disabled &&
-            btn.offsetParent !== null
-        );
-
-    if (buttons.length === 0) {
-        console.log("구매할 상품 없음");
-    }
-
-    buttons.forEach(btn => {
-        btn.click();
-        console.log("✅ Buy all");
-    });
-
-    // 서버 처리 대기
-    await new Promise(r => setTimeout(r, 500));
-
-    // 패널 닫기
-    bell.click();
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 15초 후 시작
-setTimeout(autoBuy, 15000);
+function clickNotificationBell() {
+    const bell = document.querySelector('button[data-notification-bell-widget="1"]');
+    if (!bell) return false;
 
-// 이후 1분마다
-setInterval(autoBuy, 60000);
+    const r = bell.getBoundingClientRect();
+
+    bell.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        buttons: 1,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2
+    }));
+
+    document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        buttons: 0,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2
+    }));
+
+    return true;
+}
+
+function getBuyAllButtons() {
+    return [...document.querySelectorAll("button")].filter(btn =>
+        btn.isConnected &&
+        !btn.disabled &&
+        btn.offsetParent !== null &&
+        btn.textContent.trim() === "Buy all"
+    );
+}
+
+async function autoBuy() {
+
+    if (autoBuying) return;
+    autoBuying = true;
+
+    try {
+
+        // Bell 열기
+        if (!clickNotificationBell()) {
+            console.log("🔔 Floating Bell 없음");
+            return;
+        }
+
+        // Buy all 버튼 생성 대기
+        let buttons = [];
+
+        for (let i = 0; i < 15; i++) {
+            await sleep(100);
+            buttons = getBuyAllButtons();
+            if (buttons.length) break;
+        }
+
+        if (buttons.length) {
+
+            console.log(`🛒 Buy all ${buttons.length}개`);
+
+            for (const btn of buttons) {
+                btn.click();
+            }
+
+            await sleep(500);
+
+        } else {
+
+            console.log("구매할 상품 없음");
+
+        }
+
+        // Bell 닫기
+        clickNotificationBell();
+
+    } catch (e) {
+
+        console.error(e);
+
+    } finally {
+
+        autoBuying = false;
+
+    }
+}
+
+setTimeout(autoBuy, FIRST_DELAY);
+setInterval(autoBuy, INTERVAL);
 
 //요기가 끝
