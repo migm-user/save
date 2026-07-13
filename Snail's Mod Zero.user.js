@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Snail's Mod Zero
 // @namespace    O_"
-// @version      1.1.1
+// @version      1.1.2
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
