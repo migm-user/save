@@ -30,34 +30,51 @@
 // @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod%20Zero.user.js
 // ==/UserScript==
 
-//★자동 구매
+//★ 자동 구매
 
 const autoClickAllButtons = () => {
 
-    // Notifications 버튼 찾기
-    const notificationBtn = document.querySelector('button[aria-label="Notifications"]');
+    // Floating Notification 버튼 찾기
+    const notificationBtn = document.querySelector(
+        'button[data-notification-bell-widget]'
+    );
 
-    // 있으면 먼저 클릭
-    if (notificationBtn) {
-        notificationBtn.click();
-        console.log('🔔 Notifications 열기');
+    if (!notificationBtn) {
+        console.log('🔔 Floating Notification 버튼을 찾지 못했습니다.');
+        return;
     }
 
-    // 잠깐 기다렸다가 Buy all 클릭
+    // 팝업 열기
+    notificationBtn.click();
+    console.log('🔔 Notifications 열기');
+
+    // Buy all 클릭
     setTimeout(() => {
 
-        const allButtons = Array.from(document.querySelectorAll('button'))
-            .filter(btn => btn.textContent.trim() === 'Buy all');
+        const allButtons = [...document.querySelectorAll("button")]
+            .filter(btn =>
+                btn.textContent.trim().toLowerCase() === "buy all" &&
+                !btn.disabled
+            );
+
+        if (allButtons.length === 0) {
+            console.log("📦 Buy all 버튼 없음");
+        }
 
         allButtons.forEach(btn => {
-            if (btn && !btn.disabled) {
-                btn.click();
-                console.log('✅ Buy all 버튼 클릭');
-            }
+            btn.click();
+            console.log("✅ Buy all 클릭");
         });
 
-    }, 1000); // 1초 기다림
+        // 팝업 닫기
+        setTimeout(() => {
+            notificationBtn.click();
+            console.log("🔔 Notifications 닫기");
+        }, 500);
+
+    }, 500);
 };
+
 
 // 10초 뒤 시작 + 1분마다 반복
 setTimeout(autoClickAllButtons, 10000);
