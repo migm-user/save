@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Snail's Mod Zero
 // @namespace    O_"
-// @version      1.1.2
+// @version      1.4.0
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -23,8 +23,8 @@
 // @connect      i.imgur.com
 // @connect      cdn.discordapp.com
 // @description  o.o_b
-// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod%20Zero.user.js
-// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod%20Zero.user.js
+// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
+// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // ==/UserScript==
 
 //★ 자동 구매
