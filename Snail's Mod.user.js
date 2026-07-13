@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Snail's Mod Zero
+// @name         Snail's Mod
 // @namespace    O_"
 // @version      1.4.0
 // @match        https://1227719606223765687.discordsays.com/*
@@ -17,12 +17,15 @@
 // @grant        GM_download
 // @connect      raw.githubusercontent.com
 // @connect      api.github.com
+// @connect      ariesmod-api.ariedam.fr
+// @connect      mg-api.ariedam.fr
+// @connect      ariedam.fr
 // @connect      cdn.pixabay.com
 // @connect      cdn.jsdelivr.net
 // @connect      magicgarden.gg
 // @connect      i.imgur.com
 // @connect      cdn.discordapp.com
-// @description  o.o_b
+// @description  o.o_b & junhwan Made
 // @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // ==/UserScript==
