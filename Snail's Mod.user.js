@@ -32,18 +32,42 @@
 
 //★ 자동 구매
 
-const FIRST_DELAY = 10000;
-const INTERVAL = 60000;
+const FIRST_DELAY = 15000;
+const CHECK_INTERVAL = 120000;
 
 let autoBuying = false;
+let bellWarningShown = false;
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function clickNotificationBell() {
-    const bell = document.querySelector('button[data-notification-bell-widget="1"]');
-    if (!bell) return false;
+
+    const bell = document.querySelector(
+        'button[data-notification-bell-widget="1"]'
+    );
+
+    if (!bell) {
+
+        if (!bellWarningShown) {
+
+            bellWarningShown = true;
+
+            alert(
+`Floating Bell을 찾을 수 없습니다.
+
+Alerts → Settings → Floating bell [On]
+
+으로 설정한 후 다시 시도하세요.`
+            );
+
+        }
+
+        return false;
+    }
+
+    bellWarningShown = false;
 
     const r = bell.getBoundingClientRect();
 
@@ -73,49 +97,61 @@ function clickNotificationBell() {
 }
 
 function getBuyAllButtons() {
+
     return [...document.querySelectorAll("button")].filter(btn =>
         btn.isConnected &&
         !btn.disabled &&
         btn.offsetParent !== null &&
         btn.textContent.trim() === "Buy all"
     );
+
 }
 
 async function autoBuy() {
 
     if (autoBuying) return;
+
     autoBuying = true;
 
     try {
 
-        // Bell 열기
-        if (!clickNotificationBell()) {
-            console.log("🔔 Floating Bell 없음");
-            return;
-        }
+        console.log("[AutoBuy] 검사 시작");
 
-        // Buy all 버튼 생성 대기
+        // Bell 열기
+        if (!clickNotificationBell()) return;
+
+        // Buy all 버튼 대기 (최대 1.5초)
         let buttons = [];
 
         for (let i = 0; i < 15; i++) {
+
             await sleep(100);
+
             buttons = getBuyAllButtons();
+
             if (buttons.length) break;
         }
 
         if (buttons.length) {
 
-            console.log(`🛒 Buy all ${buttons.length}개`);
+            console.log(`[AutoBuy] Buy all ${buttons.length}개`);
 
             for (const btn of buttons) {
-                btn.click();
+
+                try {
+                    btn.click();
+                } catch (e) {
+                    console.warn(e);
+                }
+
             }
 
+            // 구매 처리 대기
             await sleep(500);
 
         } else {
 
-            console.log("구매할 상품 없음");
+            console.log("[AutoBuy] 구매 가능한 상품 없음");
 
         }
 
@@ -124,16 +160,18 @@ async function autoBuy() {
 
     } catch (e) {
 
-        console.error(e);
+        console.error("[AutoBuy]", e);
 
     } finally {
 
         autoBuying = false;
 
     }
+
 }
 
-setTimeout(autoBuy, FIRST_DELAY);
-setInterval(autoBuy, INTERVAL);
+console.log("[AutoBuy] 시작");
 
+setTimeout(autoBuy, FIRST_DELAY);
+setInterval(autoBuy, CHECK_INTERVAL);
 //요기가 끝
