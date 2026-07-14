@@ -2,7 +2,7 @@
 // @name         Snail's Mod
 // @namespace    O_"
 // @author       O_"
-// @version      1.4.3
+// @version      1.4.4
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -33,8 +33,8 @@
 
 //★ 자동 구매
 
-const FIRST_DELAY = 15000;
-const CHECK_INTERVAL = 120000;
+const FIRST_DELAY = 10000;
+const CHECK_INTERVAL = 60000;
 
 let autoBuying = false;
 let bellWarningShown = false;
