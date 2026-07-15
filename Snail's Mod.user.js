@@ -2,7 +2,7 @@
 // @name         Snail's Mod
 // @namespace    O_"
 // @author       O_"
-// @version      1.4.4
+// @version      1.4.41
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -177,3 +177,186 @@ console.log("[AutoBuy] 시작");
 setTimeout(autoBuy, FIRST_DELAY);
 setInterval(autoBuy, CHECK_INTERVAL);
 //요기가 끝
+
+//요기가 버튼의 시작
+(function () {
+    'use strict';
+
+    const SIZE = 44;
+    const GAP = 8;
+    const Z_INDEX = 1999899;
+    const MARGIN = 16;
+    const STORAGE_KEY = 'mg_quick_tools_pos';
+
+    // 중복 생성 방지
+    if (document.getElementById('mg-quick-tools')) return;
+
+    function createButton(icon, title, onClick) {
+        const btn = document.createElement('button');
+
+        Object.assign(btn.style, {
+            width: `${SIZE}px`,
+            height: `${SIZE}px`,
+            borderRadius: '50%',
+            border: '1px solid #32404e',
+            background: 'linear-gradient(180deg, #111923, #0b131c)',
+            boxShadow: '0 10px 28px rgba(0,0,0,0.45)',
+            color: '#fff',
+            fontSize: '22px',
+            cursor: 'pointer',
+            padding: '0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            userSelect: 'none',
+            touchAction: 'none'
+        });
+
+        btn.textContent = icon;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onClick();
+        });
+
+        return btn;
+    }
+
+    const container = document.createElement('div');
+    container.id = 'mg-quick-tools';
+
+    Object.assign(container.style, {
+        position: 'fixed',
+        right: `${MARGIN}px`,
+        top: '35%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: `${GAP}px`,
+        zIndex: String(Z_INDEX),
+        userSelect: 'none',
+        touchAction: 'none'
+    });
+
+    const refreshBtn = createButton('🔄', 'Refresh Page', () => {
+        console.log('[QuickTools] Page Reload');
+        location.reload();
+    });
+
+    const altXBtn = createButton('⚙️', 'Alt + X', () => {
+        console.log('[QuickTools] Alt+X');
+
+        const down = new KeyboardEvent('keydown', {
+            key: 'x',
+            code: 'KeyX',
+            altKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+
+        const up = new KeyboardEvent('keyup', {
+            key: 'x',
+            code: 'KeyX',
+            altKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+
+        document.dispatchEvent(down);
+        window.dispatchEvent(down);
+
+        setTimeout(() => {
+            document.dispatchEvent(up);
+            window.dispatchEvent(up);
+        }, 50);
+    });
+
+    container.append(refreshBtn, altXBtn);
+    document.body.appendChild(container);
+
+    // 저장된 위치 불러오기
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+            container.style.left = `${saved.left}px`;
+            container.style.top = `${saved.top}px`;
+            container.style.right = 'auto';
+        }
+    } catch {}
+
+    // 드래그
+    let drag = null;
+
+    function clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    container.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+
+        const rect = container.getBoundingClientRect();
+
+        drag = {
+            id: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            left: rect.left,
+            top: rect.top,
+            moved: false
+        };
+
+        container.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+
+    container.addEventListener('pointermove', (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+
+        if (Math.hypot(dx, dy) > 4) drag.moved = true;
+
+        const left = clamp(
+            drag.left + dx,
+            8,
+            window.innerWidth - container.offsetWidth - 8
+        );
+
+        const top = clamp(
+            drag.top + dy,
+            8,
+            window.innerHeight - container.offsetHeight - 8
+        );
+
+        container.style.left = `${left}px`;
+        container.style.top = `${top}px`;
+        container.style.right = 'auto';
+    });
+
+    function stopDrag(e) {
+        if (!drag || e.pointerId !== drag.id) return;
+
+        try {
+            container.releasePointerCapture(drag.id);
+        } catch {}
+
+        const rect = container.getBoundingClientRect();
+
+        localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+                left: Math.round(rect.left),
+                top: Math.round(rect.top)
+            })
+        );
+
+        drag = null;
+    }
+
+    container.addEventListener('pointerup', stopDrag);
+    container.addEventListener('pointercancel', stopDrag);
+
+    console.log('[QuickTools] Loaded');
+})();
