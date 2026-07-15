@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Snail's Mod for iPad
 // @namespace    O_"
-// @version      1.2.0
+// @version      1.3.0
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -35,15 +35,45 @@
 //★ 자동 구매
 
 const FIRST_DELAY = 10000;
-const INTERVAL = 60000;
+const CHECK_INTERVAL = 60000;
+
 let autoBuying = false;
+let bellWarningShown = false;
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
 function clickNotificationBell() {
-    const bell = document.querySelector('button[data-notification-bell-widget="1"]');
-    if (!bell) return false;
+
+    const bell = document.querySelector(
+        'button[data-notification-bell-widget="1"]'
+    );
+
+    if (!bell) {
+
+        if (!bellWarningShown) {
+
+            bellWarningShown = true;
+
+            alert(
+`이 메세지는 Snail's Mod 사용자에게 전송 되는 것입니다.
+자동으로 구매를 하기 위해 필요한 Floating Bell을 찾을 수 없습니다.
+
+Alerts → Settings → Floating bell [On]
+
+으로 설정한 후 다시 시도하세요.`
+            );
+
+        }
+
+        return false;
+    }
+
+    bellWarningShown = false;
+
     const r = bell.getBoundingClientRect();
+
     bell.dispatchEvent(new PointerEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
@@ -54,6 +84,7 @@ function clickNotificationBell() {
         clientX: r.left + r.width / 2,
         clientY: r.top + r.height / 2
     }));
+
     document.dispatchEvent(new PointerEvent("pointerup", {
         bubbles: true,
         cancelable: true,
@@ -64,62 +95,267 @@ function clickNotificationBell() {
         clientX: r.left + r.width / 2,
         clientY: r.top + r.height / 2
     }));
+
     return true;
 }
+
 function getBuyAllButtons() {
+
     return [...document.querySelectorAll("button")].filter(btn =>
         btn.isConnected &&
         !btn.disabled &&
         btn.offsetParent !== null &&
         btn.textContent.trim() === "Buy all"
     );
+
 }
+
 async function autoBuy() {
+
     if (autoBuying) return;
+
     autoBuying = true;
+
     try {
+
+        console.log("[AutoBuy] 검사 시작");
+
         // Bell 열기
-        if (!clickNotificationBell()) {
-            console.log("🔔 Floating Bell 없음");
-            return;
-        }
-        // Buy all 버튼 생성 대기
+        if (!clickNotificationBell()) return;
+
+        // Buy all 버튼 대기 (최대 1.5초)
         let buttons = [];
+
         for (let i = 0; i < 15; i++) {
+
             await sleep(100);
+
             buttons = getBuyAllButtons();
+
             if (buttons.length) break;
         }
+
         if (buttons.length) {
-            console.log(`🛒 Buy all ${buttons.length}개`);
+
+            console.log(`[AutoBuy] Buy all ${buttons.length}개`);
+
             for (const btn of buttons) {
-                btn.click();
+
+                try {
+                    btn.click();
+                } catch (e) {
+                    console.warn(e);
+                }
+
             }
+
+            // 구매 처리 대기
             await sleep(500);
+
         } else {
-            console.log("구매할 상품 없음");
+
+            console.log("[AutoBuy] 구매 가능한 상품 없음");
+
         }
+
         // Bell 닫기
         clickNotificationBell();
+
     } catch (e) {
-        console.error(e);
+
+        console.error("[AutoBuy]", e);
+
     } finally {
+
         autoBuying = false;
+
     }
+
 }
+
+console.log("[AutoBuy] 시작");
+
 setTimeout(autoBuy, FIRST_DELAY);
-setInterval(autoBuy, INTERVAL);
+setInterval(autoBuy, CHECK_INTERVAL);
 //요기가 끝
 
-//Alt X 들어올때마다 한번씩 눌러주기
-setTimeout(() => {
-    ['keydown', 'keyup'].forEach(type => {
-        document.dispatchEvent(new KeyboardEvent(type, {
-            key: 'x',
-            code: 'KeyX',
-            altKey: true,
-            bubbles: true
-        }));
-    });
-}, 5000);
-//요기가 끝
+//요기가 버튼의 시작
+(function () {
+    'use strict';
+
+    const BUTTON_SIZE = 44;
+    const GAP = 8;
+    const STORAGE_KEY = "quick-tools-position";
+
+    function createButton(icon, title, onClick) {
+
+        const btn = document.createElement("button");
+
+        btn.type = "button";
+        btn.title = title;
+
+        Object.assign(btn.style, {
+            position: "fixed",
+            width: BUTTON_SIZE + "px",
+            height: BUTTON_SIZE + "px",
+            zIndex: 1999901,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: "50%",
+            border: "1px solid #32404e",
+            background: "linear-gradient(180deg,#111923,#0b131c)",
+            boxShadow: "0 10px 28px rgba(0,0,0,.45)",
+            color: "#fff",
+            fontSize: "22px",
+            cursor: "grab",
+            userSelect: "none",
+            touchAction: "none"
+        });
+
+        btn.textContent = icon;
+
+        let drag = null;
+
+        btn.addEventListener("pointerdown", e => {
+
+            if (e.button !== 0) return;
+
+            const rect = btn.getBoundingClientRect();
+
+            drag = {
+                startX: e.clientX,
+                startY: e.clientY,
+                left: rect.left,
+                top: rect.top,
+                moved: false
+            };
+
+            btn.setPointerCapture(e.pointerId);
+            btn.style.cursor = "grabbing";
+        });
+
+        btn.addEventListener("pointermove", e => {
+
+            if (!drag) return;
+
+            const dx = e.clientX - drag.startX;
+            const dy = e.clientY - drag.startY;
+
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3)
+                drag.moved = true;
+
+            btn.style.left = drag.left + dx + "px";
+            btn.style.top = drag.top + dy + "px";
+        });
+
+        btn.addEventListener("pointerup", e => {
+
+            if (!drag) return;
+
+            btn.style.cursor = "grab";
+
+            if (!drag.moved) {
+                onClick();
+            }
+
+            savePositions();
+
+            drag = null;
+        });
+
+        document.body.appendChild(btn);
+
+        return btn;
+    }
+
+    const refreshBtn = createButton(
+        "🔄",
+        "Refresh Page",
+        () => location.reload()
+    );
+
+    const altXBtn = createButton(
+        "⚙️",
+        "Send Alt+X",
+        () => {
+
+            window.dispatchEvent(new KeyboardEvent("keydown", {
+                key: "x",
+                code: "KeyX",
+                altKey: true,
+                bubbles: true
+            }));
+
+            window.dispatchEvent(new KeyboardEvent("keyup", {
+                key: "x",
+                code: "KeyX",
+                altKey: true,
+                bubbles: true
+            }));
+
+            console.log("Alt+X sent");
+        }
+    );
+
+    function setDefaultPositions() {
+
+        const right = 20;
+
+        refreshBtn.style.left =
+            window.innerWidth - BUTTON_SIZE - right + "px";
+
+        refreshBtn.style.top = "250px";
+
+        altXBtn.style.left =
+            window.innerWidth - BUTTON_SIZE - right + "px";
+
+        altXBtn.style.top =
+            250 + BUTTON_SIZE + GAP + "px";
+    }
+
+    function savePositions() {
+
+        localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+                refresh: {
+                    left: refreshBtn.style.left,
+                    top: refreshBtn.style.top
+                },
+                altx: {
+                    left: altXBtn.style.left,
+                    top: altXBtn.style.top
+                }
+            })
+        );
+    }
+
+    function loadPositions() {
+
+        try {
+
+            const saved = JSON.parse(
+                localStorage.getItem(STORAGE_KEY)
+            );
+
+            if (!saved) {
+                setDefaultPositions();
+                return;
+            }
+
+            refreshBtn.style.left = saved.refresh.left;
+            refreshBtn.style.top = saved.refresh.top;
+
+            altXBtn.style.left = saved.altx.left;
+            altXBtn.style.top = saved.altx.top;
+
+        } catch {
+
+            setDefaultPositions();
+        }
+    }
+
+    loadPositions();
+
+})();
