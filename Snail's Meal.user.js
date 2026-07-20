@@ -32,7 +32,7 @@
 // ==/UserScript==
 
 // ★ Instant Feed Test
-const FEED_INTERVAL = 15 * 60 * 1000; // 10분
+const FEED_INTERVAL = 30 * 60 * 1000; // 분*초*밀리세컨드 이므로 분에다가 몇분 단위로 할지 넣으면 됩니다
 
 function clickAllInstantFeedButtons() {
 
