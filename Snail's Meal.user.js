@@ -2,7 +2,7 @@
 // @name         Snail's Meal
 // @namespace    O_"
 // @author       O_"
-// @version      1.1.2
+// @version      1.1.3
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -63,7 +63,7 @@ function clickAllInstantFeedButtons() {
             } catch (e) {
                 console.warn(e);
             }
-        }, index * 300); // 0.3초 간격
+        }, index * 600); // 0.6초 간격
     });
 }
 
