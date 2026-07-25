@@ -2,7 +2,7 @@
 // @name         Snail's Meal
 // @namespace    O_"
 // @author       O_"
-// @version      1.1.1
+// @version      1.1.2
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -67,8 +67,8 @@ function clickAllInstantFeedButtons() {
     });
 }
 
-// 5초 후 첫 실행
-setTimeout(clickAllInstantFeedButtons, 5000);
+// 10초 후 첫 실행
+setTimeout(clickAllInstantFeedButtons, 10000);
 
 // 이후 10분마다 반복
 setInterval(clickAllInstantFeedButtons, FEED_INTERVAL);
