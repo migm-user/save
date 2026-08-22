@@ -2,7 +2,7 @@
 // @name         Snail's Hidden Mod
 // @namespace    O_"
 // @author       @_"
-// @version      1.0.1
+// @version      1.0.2
 // @description  구매 + 알 심기 + 급식 + 알/펫 관리 UI
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
@@ -30,7 +30,7 @@
     const PageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const BUTTON_SIZE = 44; // Snail's Mobile과 동일한 크기
     const AUTO_BUY_FIRST_DELAY = 10_000;
-    const AUTO_BUY_INTERVAL = 60_000;
+    const AUTO_BUY_INTERVAL = 120_000;
     const AUTO_PLANT_FIRST_DELAY = 12_000;
     const AUTO_PLANT_INTERVAL = 15_000;
     const AUTO_FEED_FIRST_DELAY = 2_000;
@@ -173,7 +173,7 @@
     }
 
     // ---------------------------------------------------------------------
-    // 기존 Snail's Hidden Mod 자동 구매
+    // 구매 가능한 알림 항목을 자동으로 구매하는 기능
     // ---------------------------------------------------------------------
     let autoBuying = false;
     let bellWarningShown = false;
@@ -248,8 +248,8 @@ Alerts → Settings → Floating bell [On]
     }
 
     // ---------------------------------------------------------------------
-    // JH Pet Alert Auto Feed 2.1의 자동 급식 핵심 로직
-    // Arie's Mod의 Pets > Alerts 임계값과 Feeding 작물 설정을 그대로 사용한다.
+    // 활성 펫의 굶주림을 확인하고 자동으로 먹이를 주는 기능
+    // 펫별 굶주림 임계값과 Feeding 작물 설정을 사용한다.
     // ---------------------------------------------------------------------
     const ARIES_SETTINGS_KEY = 'aries_mod';
     let activeFeedPets = [];
@@ -455,7 +455,7 @@ Alerts → Settings → Floating bell [On]
     }
 
     // ---------------------------------------------------------------------
-    // JH Manager 3.0의 알/펫 모듈
+    // 알 심기·부화와 펫 프리셋·안전 판매를 관리하는 기능
     // ---------------------------------------------------------------------
     const sockets = new Set();
     const PageWebSocket = PageWindow.WebSocket || window.WebSocket;
@@ -1295,7 +1295,7 @@ Alerts → Settings → Floating bell [On]
     }
 
     // ---------------------------------------------------------------------
-    // UI
+    // 설정 패널과 이동 가능한 달팽이 아이콘을 표시하는 기능
     // ---------------------------------------------------------------------
     function installStyle() {
         if (document.getElementById(STYLE_ID)) return;
@@ -1612,9 +1612,9 @@ Alerts → Settings → Floating bell [On]
             <label class="snail-toggle"><span><b>알 자동 심기</b><small>빈 공간을 설정 규칙대로 자동 채움</small></span><input class="snail-auto-plant" type="checkbox"></label>
             <label class="snail-toggle"><span><b>펫 자동 밥주기</b><small>Arie's Mod의 알림 임계값에 맞춰 급식</small></span><input class="snail-auto-feed" type="checkbox"></label>
             <div class="snail-actions">
-                <button class="snail-egg-settings">🥚 심기 설정</button>
                 <button class="snail-hatch">🐣 모두 부화</button>
                 <button class="snail-sell">💰 펫 판매</button>
+                <button class="snail-egg-settings">🥚 심기 설정</button>
                 <button class="snail-pet-settings-btn">⚙ 설정</button>
             </div>
             <div class="snail-pet-settings">
@@ -1656,7 +1656,7 @@ Alerts → Settings → Floating bell [On]
                     </div>
                     <div class="snail-subsettings snail-interval-setting">
                         <label class="snail-setting"><span>자동 구매 간격</span><span class="snail-interval-value"><input type="number" min="5" max="3600" step="1" value="${Math.round(settings.intervals.autoBuy / 1000)}" data-interval-setting="autoBuy">초</span></label>
-                        <label class="snail-setting"><span>자동 밥주기 간격</span><span class="snail-interval-value"><input type="number" min="2" max="3600" step="1" value="${Math.round(settings.intervals.autoFeed / 1000)}" data-interval-setting="autoFeed">초</span></label>
+                        <label class="snail-setting"><span>굶주림 확인 간격</span><span class="snail-interval-value"><input type="number" min="2" max="3600" step="1" value="${Math.round(settings.intervals.autoFeed / 1000)}" data-interval-setting="autoFeed">초</span></label>
                     </div>
                 </div>
                 <div class="snail-feed-help">자동 급식 임계값과 먹이는 Arie's Mod → Pets → Alerts / Feeding 설정을 사용합니다.</div>
@@ -1884,7 +1884,7 @@ Alerts → Settings → Floating bell [On]
     function start() {
         createUI();
         startAutomationScheduler();
-        console.log("[Snail's Hidden Mod] v1.0.1 loaded");
+        console.log("[Snail's Hidden Mod] v1.0.2 loaded");
     }
 
     if (document.readyState === 'loading') {
