@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Snail's Hidden Mod
 // @namespace    O_"
-// @author       @_"
+// @author       O_"
 // @version      1.1.0
 // @description  자동 구매 + 알 자동 심기 + 자동 급식 + 알/펫 관리 + 천장 계산기
 // @match        https://1227719606223765687.discordsays.com/*
