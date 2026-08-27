@@ -2,8 +2,8 @@
 // @name         Snail's Hidden Mod
 // @namespace    O_"
 // @author       O_"
-// @version      1.1.0
-// @description  자동 구매 + 알 자동 심기 + 자동 급식 + 알/펫 관리 + 천장 계산기
+// @version      1.1.2
+// @description  구매 + 알 심기 + 급식 + 알/펫 관리 + 천장 계산기
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -36,7 +36,7 @@
     const AUTO_FEED_FIRST_DELAY = 2_000;
     const AUTO_FEED_INTERVAL = 900_000;
     const FEED_CONFIRM_TIMEOUT = 15_000;
-    const SCRIPT_VERSION = '1.1.0';
+    const SCRIPT_VERSION = '1.1.2';
     const MAX_ACTIVE_PETS = 3;
     const SCREEN_MARGIN = 8; // Arie's Mod Floating Bell과 동일
     const DEFAULT_RIGHT_GAP = 16;
@@ -45,6 +45,7 @@
     const PANEL_POSITION_KEY = 'snails-mod.panel-position.v1';
     const LAST_TEAM_KEY = 'snails-mod.last-team.v1';
     const PITY_STATE_KEY = 'snails-mod.pity-state.v1';
+    const PITY_LOCAL_ACCOUNT_ID = '__local_profile__';
     const PITY_CATALOG_CACHE_KEY = 'snails-mod.pity-catalog.v1';
     const PITY_CATALOG_CACHE_MS = 6 * 60 * 60 * 1_000;
     const PITY_ACTIVITY_POLL_MS = 400;
@@ -945,8 +946,14 @@ Alerts → Settings → Floating bell [On]
 
     async function ensurePityAccount() {
         const player = await readAtom('playerAtom', null);
-        const resolved = readAccountId(player);
-        if (!resolved) return null;
+        const detected = readAccountId(player);
+        const resolved = detected || pityAccountId || PITY_LOCAL_ACCOUNT_ID;
+        if (detected && pityAccountId === PITY_LOCAL_ACCOUNT_ID &&
+            pityState.accounts[PITY_LOCAL_ACCOUNT_ID] && !pityState.accounts[detected]) {
+            pityState.accounts[detected] = pityState.accounts[PITY_LOCAL_ACCOUNT_ID];
+            delete pityState.accounts[PITY_LOCAL_ACCOUNT_ID];
+            savePityState();
+        }
         if (pityAccountId !== resolved) pityAccountId = resolved;
         return getPityAccountState(true);
     }
@@ -1216,8 +1223,8 @@ Alerts → Settings → Floating bell [On]
 
     async function applyLegacyPityBonus() {
         await getPityCatalog();
-        const account = await ensurePityAccount();
-        if (!account) throw new Error('게임 계정을 확인하지 못했습니다.');
+        if (!pityAccountId) pityAccountId = PITY_LOCAL_ACCOUNT_ID;
+        const account = getPityAccountState(true);
         account.legacyAccount = true;
         if (!account.legacyBonusApplied) {
             for (const eggId of PITY_EGG_IDS) {
@@ -1533,54 +1540,70 @@ Alerts → Settings → Floating bell [On]
         let skipped = 0;
         let stoppedReason = '';
         lastHatchServerError = null;
+        const originalPresetId = getCurrentPresetId();
+        let activePresetId = originalPresetId;
+        const switchHatchPreset = async (teamId, label) => {
+            if (!settings.pets.usePresetSwitch) return;
+            const target = String(teamId || '').trim();
+            if (!target || target === activePresetId) return;
+            setStatus(`${label} 프리셋으로 변경 중...`);
+            await applyPetTeam(target);
+            activePresetId = target;
+        };
         try {
             setStatus('부화 가능한 알 확인 중...');
             const canTrackPity = await preparePityTracking();
-            const hatchTeamId = settings.pity.stopBeforePity && settings.pets.pityTeamId
-                ? settings.pets.pityTeamId
-                : settings.pets.hatchTeamId;
-            await withPreset(hatchTeamId, settings.pets.restoreAfterHatch, async () => {
-                const scan = await scanGame();
-                const targets = scan.eggTiles.filter(egg => Number.isFinite(egg.maturedAt) && egg.maturedAt <= Date.now());
-                total = targets.length;
-                if (!total) {
-                    setStatus('부화 가능한 알이 없습니다.');
-                    return;
+            const scan = await scanGame();
+            const targets = scan.eggTiles.filter(egg => Number.isFinite(egg.maturedAt) && egg.maturedAt <= Date.now());
+            total = targets.length;
+            if (!total) {
+                setStatus('부화 가능한 알이 없습니다.');
+                return;
+            }
+            await switchHatchPreset(settings.pets.hatchTeamId, '부화');
+            const needsExactPityTracking = settings.pity.stopBeforePity ||
+                (settings.pets.usePresetSwitch && !!String(settings.pets.pityTeamId || '').trim());
+            for (const egg of targets) {
+                if (cancelRequested) break;
+                const pityReason = getPityStopReason(egg.eggId);
+                if (settings.pity.stopBeforePity && pityReason) {
+                    skipped++;
+                    stoppedReason ||= `${pityCatalog?.[egg.eggId]?.name || egg.eggId} ${pityReason.label} ${pityReason.count}/${pityReason.threshold}`;
+                    continue;
                 }
-                for (const egg of targets) {
-                    if (cancelRequested) break;
-                    const pityStop = settings.pity.stopBeforePity ? getPityStopReason(egg.eggId) : null;
-                    if (pityStop) {
-                        skipped++;
-                        stoppedReason ||= `${pityCatalog?.[egg.eggId]?.name || egg.eggId} ${pityStop.label} ${pityStop.count}/${pityStop.threshold}`;
-                        continue;
-                    }
-                    const signature = tileSignature(egg.raw);
-                    setStatus(`부화 중 ${done + 1}/${total}`);
-                    const beforePitySequence = pityHatchSequence;
-                    sendGame({ type: 'HatchEgg', slot: egg.slot });
-                    const changed = await waitForTileChange(egg.slot, signature, 900);
-                    if (!changed) {
-                        stoppedReason = lastHatchServerError && Date.now() - lastHatchServerError.at < 2_000
-                            ? lastHatchServerError.reason
-                            : '부화 확인 실패';
-                        break;
-                    }
-                    done++;
-                    if (settings.pity.stopBeforePity && canTrackPity && PITY_EGG_IDS.includes(egg.eggId) &&
-                        !await waitForPityHatch(egg.eggId, beforePitySequence)) {
-                        stoppedReason = '천장 기록 확인 실패';
-                        break;
-                    }
-                    await sleep(5);
+                const usePityPreset = !!pityReason && !!String(settings.pets.pityTeamId || '').trim();
+                await switchHatchPreset(
+                    usePityPreset ? settings.pets.pityTeamId : settings.pets.hatchTeamId,
+                    usePityPreset ? '천장' : '부화'
+                );
+                const signature = tileSignature(egg.raw);
+                setStatus(`${usePityPreset ? '천장 ' : ''}부화 중 ${done + 1}/${total}`);
+                const beforePitySequence = pityHatchSequence;
+                sendGame({ type: 'HatchEgg', slot: egg.slot });
+                const changed = await waitForTileChange(egg.slot, signature, 900);
+                if (!changed) {
+                    stoppedReason = lastHatchServerError && Date.now() - lastHatchServerError.at < 2_000
+                        ? lastHatchServerError.reason
+                        : '부화 확인 실패';
+                    break;
                 }
-            });
+                done++;
+                if (needsExactPityTracking && canTrackPity && PITY_EGG_IDS.includes(egg.eggId) &&
+                    !await waitForPityHatch(egg.eggId, beforePitySequence)) {
+                    stoppedReason = '천장 기록 확인 실패';
+                    break;
+                }
+                await sleep(5);
+            }
             if (cancelRequested) setStatus(`부화 중지 · ${done}/${total}`, 'error');
             else if (stoppedReason) setStatus(`부화 중지 · ${done}/${total} · ${stoppedReason}`, 'error');
             else if (total) setStatus(`부화 완료 ${done}개${skipped ? ` · 천장 대기 ${skipped}개` : ''}`, 'ok');
         } catch (error) {
             setStatus(error?.message || String(error), 'error');
         } finally {
+            if (settings.pets.usePresetSwitch && settings.pets.restoreAfterHatch && originalPresetId && activePresetId !== originalPresetId) {
+                try { await applyPetTeam(originalPresetId); } catch {}
+            }
             endTask();
         }
     }
@@ -2057,15 +2080,13 @@ Alerts → Settings → Floating bell [On]
         const legacy = panel.querySelector('.snail-legacy-account');
         if (legacy) {
             legacy.checked = !!account?.legacyAccount;
-            legacy.disabled = !account || !!account.legacyBonusApplied;
+            legacy.disabled = !!account?.legacyBonusApplied;
         }
         const legacyState = panel.querySelector('.snail-legacy-state');
         if (legacyState) {
-            legacyState.textContent = !pityAccountId
-                ? '게임 계정 연결 대기 중'
-                : account?.legacyBonusApplied
-                    ? '50% 보정 적용 완료'
-                    : '체크하면 각 천장을 50%부터 시작';
+            legacyState.textContent = account?.legacyBonusApplied
+                ? '50% 보정 적용 완료'
+                : '직접 체크하면 각 천장을 50%부터 시작';
         }
         refreshPresetDisplay();
         refreshPetGroupStates(panel);
@@ -2352,7 +2373,7 @@ Alerts → Settings → Floating bell [On]
                     </div>
                     <div class="snail-pet-group snail-collapsible" data-collapse-key="presetSwitch">
                         <div class="snail-master-card">
-                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>프리셋 변경</b><small>부화·천장 대기·판매용 프리셋을 자동 적용</small></span></button>
+                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>프리셋 변경</b><small>일반 부화·천장 확정·판매용 프리셋을 자동 적용</small></span></button>
                             <input type="checkbox" aria-label="프리셋 변경" data-pet-setting="usePresetSwitch">
                         </div>
                         <div class="snail-subsettings" data-depends-on="usePresetSwitch">
@@ -2362,6 +2383,7 @@ Alerts → Settings → Floating bell [On]
                             <div class="snail-setting"><span>판매 프리셋</span><span class="snail-preset-row"><input type="text" data-pet-setting="sellTeamId" placeholder="사용 안 함"><button type="button" data-use-current-preset="sellTeamId">현재 프리셋</button></span></div>
                             <label class="snail-setting"><span>판매 후 복구</span><input type="checkbox" data-pet-setting="restoreAfterSell"></label>
                             <div class="snail-setting"><span>현재 프리셋</span><code class="snail-current-preset">감지되지 않음</code></div>
+                            <div class="snail-popup-help">일반 알은 부화 프리셋으로 열고, 다음 부화가 천장 확정일 때만 천장 프리셋으로 바꿉니다.</div>
                         </div>
                     </div>
                     <div class="snail-pet-group snail-collapsible" data-collapse-key="miscellaneous">
@@ -2370,8 +2392,8 @@ Alerts → Settings → Floating bell [On]
                         </div>
                         <div class="snail-subsettings">
                             <label class="snail-setting"><span class="snail-setting-label"><b>판매 목록 팝업</b><small>판매 대상을 먼저 확인하고 선택</small></span><input type="checkbox" data-pet-setting="confirmBeforeSell"></label>
-                            <label class="snail-setting"><span class="snail-setting-label"><b>천장 부화 중단</b><small>천장 직전에서 해당 알의 부화를 멈춤</small></span><input type="checkbox" data-pity-setting="stopBeforePity"></label>
-                            <label class="snail-setting"><span class="snail-setting-label"><b>천장 이전 생성 계정</b><small class="snail-legacy-state">게임 계정 연결 대기 중</small></span><input class="snail-legacy-account" type="checkbox"></label>
+                            <label class="snail-setting"><span class="snail-setting-label"><b>천장 부화 중단</b><small>ON이면 천장 프리셋으로 열지 않고 직전에 멈춤</small></span><input type="checkbox" data-pity-setting="stopBeforePity"></label>
+                            <label class="snail-setting"><span class="snail-setting-label"><b>천장 이전 생성 계정</b><small class="snail-legacy-state">직접 체크하면 각 천장을 50%부터 시작</small></span><input class="snail-legacy-account" type="checkbox"></label>
                         </div>
                     </div>
                     <div class="snail-pet-group snail-collapsible" data-collapse-key="intervalSettings">
