@@ -15,8 +15,8 @@
 // @grant        GM_setValue
 // @connect      mg-api.ariedam.fr
 // @connect      magicgarden.gg
-// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
-// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
+// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Hidden%20Mod.user.js
+// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Hidden%20Mod.user.js
 // ==/UserScript==
 
 // 버전 규칙: 수정은 패치(+0.0.1), 새 기능 추가는 마이너(+0.1.0)를 올린다.
