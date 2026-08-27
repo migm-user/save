@@ -2,8 +2,8 @@
 // @name         Snail's Hidden Mod
 // @namespace    O_"
 // @author       @_"
-// @version      1.0.2
-// @description  구매 + 알 심기 + 급식 + 알/펫 관리 UI
+// @version      1.1.0
+// @description  자동 구매 + 알 자동 심기 + 자동 급식 + 알/펫 관리 + 천장 계산기
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
 // @match        https://magicgarden.gg/r/*
@@ -15,8 +15,8 @@
 // @grant        GM_setValue
 // @connect      mg-api.ariedam.fr
 // @connect      magicgarden.gg
-// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Hidden%20Mod.user.js
-// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Hidden%20Mod.user.js
+// @updateURL    https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
+// @downloadURL  https://raw.githubusercontent.com/migm-user/save/main/Snail's%20Mod.user.js
 // ==/UserScript==
 
 // 버전 규칙: 수정은 패치(+0.0.1), 새 기능 추가는 마이너(+0.1.0)를 올린다.
@@ -36,6 +36,7 @@
     const AUTO_FEED_FIRST_DELAY = 2_000;
     const AUTO_FEED_INTERVAL = 900_000;
     const FEED_CONFIRM_TIMEOUT = 15_000;
+    const SCRIPT_VERSION = '1.1.0';
     const MAX_ACTIVE_PETS = 3;
     const SCREEN_MARGIN = 8; // Arie's Mod Floating Bell과 동일
     const DEFAULT_RIGHT_GAP = 16;
@@ -43,9 +44,34 @@
     const POSITION_KEY = 'snails-mod.icon-position.v2';
     const PANEL_POSITION_KEY = 'snails-mod.panel-position.v1';
     const LAST_TEAM_KEY = 'snails-mod.last-team.v1';
+    const PITY_STATE_KEY = 'snails-mod.pity-state.v1';
+    const PITY_CATALOG_CACHE_KEY = 'snails-mod.pity-catalog.v1';
+    const PITY_CATALOG_CACHE_MS = 6 * 60 * 60 * 1_000;
+    const PITY_ACTIVITY_POLL_MS = 400;
+    const PITY_HATCH_LOG_TIMEOUT = 5_000;
     const STYLE_ID = 'snails-mod-v2-style';
     const PANEL_ID = 'snails-mod-v2-panel';
     const ICON_ID = 'snails-mod-v2-icon';
+    const PITY_EGG_IDS = [
+        'CommonEgg', 'UncommonEgg', 'RareEgg', 'SnowEgg',
+        'LegendaryEgg', 'DawnEgg', 'ThunderEgg', 'MythicalEgg'
+    ];
+    const PITY_KOREAN_NAMES = {
+        Bee: '벌', Dragonfly: '잠자리', Turkey: '칠면조', WhiteCaribou: '순록',
+        Goat: '염소', Ostrich: '타조', ThunderWolf: '천둥늑대', Capybara: '카피바라',
+        Gold: 'Gold', Rainbow: 'Rainbow'
+    };
+    const FALLBACK_PITY_CATALOG = {
+        CommonEgg: { name: 'Common Egg', faunaSpawnWeights: { Bee: 5 }, speciesPityThresholdPulls: { Bee: 40 } },
+        UncommonEgg: { name: 'Uncommon Egg', faunaSpawnWeights: { Dragonfly: 5 }, speciesPityThresholdPulls: { Dragonfly: 40 } },
+        RareEgg: { name: 'Rare Egg', faunaSpawnWeights: { Turkey: 5 }, speciesPityThresholdPulls: { Turkey: 40 } },
+        SnowEgg: { name: 'Snow Egg', faunaSpawnWeights: { WhiteCaribou: 5 }, speciesPityThresholdPulls: { WhiteCaribou: 40 } },
+        LegendaryEgg: { name: 'Legendary Egg', faunaSpawnWeights: { Goat: 5 }, speciesPityThresholdPulls: { Goat: 40 } },
+        DawnEgg: { name: 'Dawn Egg', faunaSpawnWeights: { Ostrich: 5 }, speciesPityThresholdPulls: { Ostrich: 40 } },
+        ThunderEgg: { name: 'Thunder Egg', faunaSpawnWeights: { ThunderWolf: 5 }, speciesPityThresholdPulls: { ThunderWolf: 40 } },
+        MythicalEgg: { name: 'Mythical Egg', faunaSpawnWeights: { Capybara: 5 }, speciesPityThresholdPulls: { Capybara: 40 } },
+        mutationThresholds: { Gold: 200, Rainbow: 2_000 }
+    };
 
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
@@ -69,7 +95,7 @@
                 autoBuy: AUTO_BUY_INTERVAL,
                 autoFeed: AUTO_FEED_INTERVAL
             },
-            ui: { collapsedSections: [] },
+            ui: { collapsedSections: [], page: 1 },
             egg: {
                 mode: 'single',
                 single: { eggId: '', reserve: 0 },
@@ -78,6 +104,7 @@
             pets: {
                 usePresetSwitch: true,
                 hatchTeamId: '',
+                pityTeamId: '',
                 sellTeamId: '',
                 restoreAfterHatch: true,
                 restoreAfterSell: true,
@@ -87,7 +114,8 @@
                 protectStr: true,
                 strThreshold: 0,
                 confirmBeforeSell: true
-            }
+            },
+            pity: { stopBeforePity: false }
         };
     }
 
@@ -115,9 +143,8 @@
         } catch {}
     }
 
-    function loadSettings() {
+    function normalizeSettings(saved) {
         const base = defaultSettings();
-        const saved = readStored(SETTINGS_KEY, null);
         if (!saved || typeof saved !== 'object') return base;
         const collapsedSections = saved.ui?.collapsedSections ?? saved.ui?.collapsedPetSections;
         const migratedCollapsedSections = Array.isArray(collapsedSections)
@@ -125,6 +152,9 @@
             : [];
         if (migratedCollapsedSections.some(key => key === 'buyInterval' || key === 'feedInterval')) {
             migratedCollapsedSections.push('intervalSettings');
+        }
+        if (migratedCollapsedSections.includes('sellPopup')) {
+            migratedCollapsedSections.push('miscellaneous');
         }
         return {
             ...base,
@@ -138,8 +168,9 @@
             ui: {
                 ...base.ui,
                 ...(saved.ui || {}),
+                page: clampInt(saved.ui?.page ?? base.ui.page, 1, 3),
                 collapsedSections: [...new Set(migratedCollapsedSections
-                    .filter(key => key !== 'buyInterval' && key !== 'feedInterval'))]
+                    .filter(key => key !== 'buyInterval' && key !== 'feedInterval' && key !== 'sellPopup'))]
             },
             egg: {
                 ...base.egg,
@@ -156,8 +187,13 @@
                         : {}
                 }
             },
-            pets: { ...base.pets, ...(saved.pets || {}) }
+            pets: { ...base.pets, ...(saved.pets || {}) },
+            pity: { ...base.pity, ...(saved.pity || {}) }
         };
+    }
+
+    function loadSettings() {
+        return normalizeSettings(readStored(SETTINGS_KEY, null));
     }
 
     let settings = loadSettings();
@@ -468,6 +504,17 @@ Alerts → Settings → Floating bell [On]
     let lastHatchServerError = null;
     let modal = null;
     let statusTimer = null;
+    let pityCatalog = FALLBACK_PITY_CATALOG;
+    let pityCatalogSource = '내장 예비 데이터';
+    let pityCatalogPromise = null;
+    let pityState = normalizePityState(readStored(PITY_STATE_KEY, null));
+    let pityAccountId = '';
+    let pityTrackingTimer = null;
+    let pityTrackingBusy = false;
+    let pityPollPromise = null;
+    let pityHatchSequence = 0;
+    let pityHatchEvents = [];
+    const pityEggSlots = new Map();
 
     function rememberTeamId(teamId) {
         const id = String(teamId || '').trim();
@@ -515,6 +562,52 @@ Alerts → Settings → Floating bell [On]
         if (teamId) rememberTeamId(teamId);
     }
 
+    function findHatchRequest(value, depth = 0, seen = new Set()) {
+        if (depth > 10 || value == null) return null;
+        if (typeof value === 'string') {
+            const text = value.trim();
+            if (text[0] === '{' || text[0] === '[') {
+                try { return findHatchRequest(JSON.parse(text), depth + 1, seen); } catch {}
+            }
+            return null;
+        }
+        if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+            try {
+                const bytes = value instanceof ArrayBuffer
+                    ? value
+                    : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+                return findHatchRequest(new TextDecoder().decode(bytes), depth + 1, seen);
+            } catch {
+                return null;
+            }
+        }
+        if (typeof value !== 'object' && typeof value !== 'function') return null;
+        if (seen.has(value)) return null;
+        seen.add(value);
+        if (value.type === 'HatchEgg') {
+            return { slot: Number(value.slot), eggId: String(value.eggId || '') };
+        }
+        if (value.command?.type === 'HatchEgg') {
+            return { slot: Number(value.command.slot), eggId: String(value.command.eggId || '') };
+        }
+        for (const item of Array.isArray(value) ? value : Object.values(value)) {
+            const found = findHatchRequest(item, depth + 1, seen);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    function shouldBlockHatchPayload(raw) {
+        if (!settings.pity.stopBeforePity) return false;
+        const request = findHatchRequest(raw);
+        if (!request) return false;
+        const eggId = request.eggId || pityEggSlots.get(request.slot) || '';
+        const reason = getPityStopReason(eggId);
+        if (!reason) return false;
+        setStatus(`천장 보호 · ${reason.label} ${reason.count}/${reason.threshold}`, 'error');
+        return true;
+    }
+
     function detectHatchServerError(data) {
         let text = '';
         try {
@@ -553,6 +646,7 @@ Alerts → Settings → Floating bell [On]
             try {
                 trackSocket(this);
                 learnFromPayload(data);
+                if (shouldBlockHatchPayload(data)) return;
             } catch {}
             return current.call(this, data);
         };
@@ -567,6 +661,7 @@ Alerts → Settings → Floating bell [On]
             try {
                 args.forEach(learnFromPayload);
                 trackSocket(this?.currentWebSocket || connection.currentWebSocket);
+                if (args.some(shouldBlockHatchPayload)) return;
             } catch {}
             return current.apply(this, args);
         };
@@ -742,12 +837,21 @@ Alerts → Settings → Floating bell [On]
                 case 'mapAtom': return await atoms.root?.map?.get?.();
                 case 'myInventoryAtom': return await atoms.inventory?.myInventory?.get?.();
                 case 'myDataAtom': {
+                    const data = await atoms.data?.myData?.get?.();
+                    if (data !== undefined) return data;
                     const garden = await atoms.data?.garden?.get?.();
                     return garden === undefined ? undefined : { garden };
                 }
+                case 'myActivityLogAtom': {
+                    const direct = await atoms.data?.myActivityLog?.get?.();
+                    if (direct !== undefined) return direct;
+                    const data = await atoms.data?.myData?.get?.();
+                    return data?.activityLogs ?? data?.activityLog;
+                }
                 case 'playerAtom': return {
                     id: await atoms.player?.playerId?.get?.(),
-                    databaseUserId: await atoms.player?.playerDatabaseUserId?.get?.()
+                    databaseUserId: await atoms.player?.playerDatabaseUserId?.get?.(),
+                    discordUserId: await atoms.player?.discordUserId?.get?.()
                 };
                 default: return undefined;
             }
@@ -766,6 +870,367 @@ Alerts → Settings → Floating bell [On]
         } catch {
             return fallback;
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // 최신 Bad Luck Protection 규칙을 따라 부화 천장을 추적하는 기능
+    // ---------------------------------------------------------------------
+    function normalizePityState(raw) {
+        const output = { version: 1, accounts: {} };
+        if (!raw || typeof raw !== 'object' || !raw.accounts || typeof raw.accounts !== 'object') return output;
+        for (const [accountId, value] of Object.entries(raw.accounts)) {
+            if (!value || typeof value !== 'object') continue;
+            const counters = {};
+            if (value.counters && typeof value.counters === 'object') {
+                for (const [eggId, entries] of Object.entries(value.counters)) {
+                    if (!entries || typeof entries !== 'object') continue;
+                    counters[String(eggId)] = Object.fromEntries(Object.entries(entries)
+                        .filter(([key]) => typeof key === 'string')
+                        .map(([key, count]) => [key, clampInt(count, 0)]));
+                }
+            }
+            output.accounts[String(accountId)] = {
+                counters,
+                legacyAccount: !!value.legacyAccount,
+                legacyBonusApplied: !!value.legacyBonusApplied,
+                logInitialized: !!value.logInitialized,
+                seenLogKeys: Array.isArray(value.seenLogKeys)
+                    ? value.seenLogKeys.map(String).slice(-100)
+                    : [],
+                trackingStartedAt: clampInt(value.trackingStartedAt, 0),
+                lastCountedAt: clampInt(value.lastCountedAt, 0),
+                lastResult: value.lastResult && typeof value.lastResult === 'object'
+                    ? { ...value.lastResult }
+                    : null
+            };
+        }
+        return output;
+    }
+
+    function savePityState() {
+        writeStored(PITY_STATE_KEY, pityState);
+    }
+
+    function createPityAccountState() {
+        return {
+            counters: {},
+            legacyAccount: false,
+            legacyBonusApplied: false,
+            logInitialized: false,
+            seenLogKeys: [],
+            trackingStartedAt: Date.now(),
+            lastCountedAt: 0,
+            lastResult: null
+        };
+    }
+
+    function getPityAccountState(create = false) {
+        if (!pityAccountId) return null;
+        if (!pityState.accounts[pityAccountId] && create) {
+            pityState.accounts[pityAccountId] = createPityAccountState();
+            savePityState();
+        }
+        return pityState.accounts[pityAccountId] || null;
+    }
+
+    function readAccountId(player) {
+        const candidates = [
+            player?.databaseUserId, player?.discordUserId, player?.userId, player?.id,
+            player?.data?.databaseUserId, player?.data?.discordUserId,
+            player?.data?.userId, player?.data?.id
+        ];
+        const found = candidates.find(value => value != null && String(value).trim());
+        return found == null ? '' : String(found).trim();
+    }
+
+    async function ensurePityAccount() {
+        const player = await readAtom('playerAtom', null);
+        const resolved = readAccountId(player);
+        if (!resolved) return null;
+        if (pityAccountId !== resolved) pityAccountId = resolved;
+        return getPityAccountState(true);
+    }
+
+    function normalizePityCatalog(raw) {
+        const source = raw?.eggs && typeof raw.eggs === 'object' ? raw.eggs : raw;
+        const mutations = raw?.mutations && typeof raw.mutations === 'object' ? raw.mutations : {};
+        if (!source || typeof source !== 'object') return null;
+        const output = {};
+        for (const eggId of PITY_EGG_IDS) {
+            const entry = source[eggId];
+            if (!entry || typeof entry !== 'object') continue;
+            const weights = entry.faunaSpawnWeights && typeof entry.faunaSpawnWeights === 'object'
+                ? Object.fromEntries(Object.entries(entry.faunaSpawnWeights)
+                    .map(([species, chance]) => [String(species), Number(chance)])
+                    .filter(([, chance]) => Number.isFinite(chance) && chance > 0))
+                : {};
+            const thresholds = entry.speciesPityThresholdPulls && typeof entry.speciesPityThresholdPulls === 'object'
+                ? Object.fromEntries(Object.entries(entry.speciesPityThresholdPulls)
+                    .map(([species, threshold]) => [String(species), clampInt(threshold, 1)])
+                    .filter(([, threshold]) => threshold > 0))
+                : {};
+            if (!Object.keys(thresholds).length) continue;
+            output[eggId] = {
+                name: String(entry.name || FALLBACK_PITY_CATALOG[eggId]?.name || eggId),
+                faunaSpawnWeights: weights,
+                speciesPityThresholdPulls: thresholds
+            };
+        }
+        if (PITY_EGG_IDS.some(eggId => !output[eggId])) return null;
+        const thresholdFromChance = (name, fallback) => {
+            const cachedThreshold = Number(raw?.mutationThresholds?.[name]);
+            if (Number.isFinite(cachedThreshold) && cachedThreshold > 0) return Math.round(cachedThreshold);
+            const chance = Number(mutations[name]?.baseChance);
+            return Number.isFinite(chance) && chance > 0 ? Math.round(2 / chance) : fallback;
+        };
+        output.mutationThresholds = {
+            Gold: thresholdFromChance('Gold', 200),
+            Rainbow: thresholdFromChance('Rainbow', 2_000)
+        };
+        return output;
+    }
+
+    function getPityCatalog() {
+        if (pityCatalogPromise) return pityCatalogPromise;
+        pityCatalogPromise = (async () => {
+            const cached = readStored(PITY_CATALOG_CACHE_KEY, null);
+            const cachedCatalog = normalizePityCatalog(cached?.data);
+            if (cachedCatalog && Date.now() - Number(cached.savedAt) < PITY_CATALOG_CACHE_MS) {
+                pityCatalog = cachedCatalog;
+                pityCatalogSource = '캐시';
+            }
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 5_000);
+                let response;
+                try {
+                    response = await fetch('https://mg-api.ariedam.fr/data', {
+                        method: 'GET', cache: 'no-store', credentials: 'omit', signal: controller.signal
+                    });
+                } finally {
+                    clearTimeout(timeout);
+                }
+                if (!response.ok) throw new Error(`API ${response.status}`);
+                const live = normalizePityCatalog(await response.json());
+                if (!live) throw new Error('천장 데이터 형식 오류');
+                pityCatalog = live;
+                pityCatalogSource = '최신 API';
+                writeStored(PITY_CATALOG_CACHE_KEY, { savedAt: Date.now(), data: live });
+            } catch (error) {
+                if (!cachedCatalog) console.warn('[Snail/Pity] 최신 데이터 로드 실패, 내장 데이터 사용', error);
+            }
+            renderPityPage();
+            return pityCatalog;
+        })();
+        return pityCatalogPromise;
+    }
+
+    function getPityOutcomes(eggId) {
+        const egg = pityCatalog?.[eggId];
+        if (!egg) return [];
+        const species = Object.entries(egg.speciesPityThresholdPulls || {})
+            .map(([id, threshold]) => ({
+                key: `species:${id}`,
+                type: 'species',
+                id,
+                label: PITY_KOREAN_NAMES[id] || id,
+                chance: Number(egg.faunaSpawnWeights?.[id]) || 0,
+                threshold: clampInt(threshold, 1)
+            }))
+            .sort((a, b) => a.chance - b.chance);
+        const mutationThresholds = pityCatalog.mutationThresholds || FALLBACK_PITY_CATALOG.mutationThresholds;
+        return [
+            ...species,
+            { key: 'mutation:Gold', type: 'mutation', id: 'Gold', label: 'Gold', chance: 1, threshold: clampInt(mutationThresholds.Gold, 1) },
+            { key: 'mutation:Rainbow', type: 'mutation', id: 'Rainbow', label: 'Rainbow', chance: 0.1, threshold: clampInt(mutationThresholds.Rainbow, 1) }
+        ];
+    }
+
+    function getPityCounter(account, eggId, key) {
+        return clampInt(account?.counters?.[eggId]?.[key], 0);
+    }
+
+    function setPityCounter(account, eggId, key, value) {
+        account.counters[eggId] ||= {};
+        account.counters[eggId][key] = clampInt(value, 0);
+    }
+
+    function getPityStopReason(eggId) {
+        if (!eggId) return null;
+        const account = getPityAccountState(false);
+        if (!account) return null;
+        return getPityOutcomes(eggId)
+            .map(outcome => ({ ...outcome, count: getPityCounter(account, eggId, outcome.key) }))
+            .filter(outcome => outcome.count >= outcome.threshold - 1)
+            .sort((a, b) => b.threshold - a.threshold)[0] || null;
+    }
+
+    function getActivityLogs(raw) {
+        if (Array.isArray(raw)) return raw;
+        for (const candidate of [raw?.activityLogs, raw?.activityLog, raw?.logs, raw?.data?.activityLogs]) {
+            if (Array.isArray(candidate)) return candidate;
+        }
+        return [];
+    }
+
+    async function readPityActivityLogs() {
+        const direct = await readAtom('myActivityLogAtom', undefined);
+        const directLogs = getActivityLogs(direct);
+        if (directLogs.length) return directLogs;
+        return getActivityLogs(await readAtom('myDataAtom', null));
+    }
+
+    function pityLogKey(log) {
+        const params = log?.parameters || {};
+        const rawPet = params.pet || {};
+        const pet = rawPet.slot || rawPet.item || rawPet;
+        const timestamp = Number(log?.timestamp ?? log?.performedAt ?? log?.createdAt ?? 0);
+        if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+        return [timestamp, log?.action || log?.type || '', params.eggId || '', pet.id || '', pet.petSpecies || ''].join('|');
+    }
+
+    function applyHatchToPity(account, log) {
+        const params = log?.parameters || {};
+        const eggId = String(params.eggId || '');
+        const rawPet = params.pet || {};
+        const pet = rawPet.slot || rawPet.item || rawPet;
+        const species = String(pet.petSpecies || pet.species || '');
+        if (!PITY_EGG_IDS.includes(eggId) || !pityCatalog?.[eggId] || !species) return false;
+        const mutations = new Set((Array.isArray(pet.mutations) ? pet.mutations : [])
+            .map(value => String(value || '').toLowerCase()));
+        const hasRainbow = mutations.has('rainbow');
+        const hasGold = !hasRainbow && (mutations.has('gold') || mutations.has('golden'));
+        for (const outcome of getPityOutcomes(eggId)) {
+            const hit = outcome.type === 'species'
+                ? species.toLowerCase() === outcome.id.toLowerCase()
+                : outcome.id === 'Rainbow'
+                    ? hasRainbow
+                    : hasGold;
+            setPityCounter(account, eggId, outcome.key,
+                hit ? 0 : getPityCounter(account, eggId, outcome.key) + 1);
+        }
+        const timestamp = clampInt(log?.timestamp ?? log?.performedAt ?? log?.createdAt ?? Date.now(), 0);
+        account.lastCountedAt = timestamp || Date.now();
+        account.lastResult = { eggId, species, mutations: [...mutations], at: account.lastCountedAt };
+        pityHatchSequence++;
+        pityHatchEvents.push({ sequence: pityHatchSequence, eggId, at: Date.now() });
+        pityHatchEvents = pityHatchEvents.slice(-30);
+        return true;
+    }
+
+    async function performPityActivityLogPoll({ initializeOnly = false } = {}) {
+        const account = await ensurePityAccount();
+        if (!account) return 0;
+        const logs = (await readPityActivityLogs())
+            .filter(log => log && typeof log === 'object')
+            .sort((a, b) => Number(a.timestamp ?? a.performedAt ?? a.createdAt ?? 0) - Number(b.timestamp ?? b.performedAt ?? b.createdAt ?? 0));
+        if (!account.logInitialized) {
+            account.seenLogKeys = logs.map(pityLogKey).filter(Boolean).slice(-100);
+            account.logInitialized = true;
+            account.trackingStartedAt ||= Date.now();
+            savePityState();
+            renderPityPage();
+            return 0;
+        }
+        if (initializeOnly) return 0;
+        const seen = new Set(account.seenLogKeys);
+        let counted = 0;
+        let changed = false;
+        for (const log of logs) {
+            const action = String(log.action || log.type || '').toLowerCase();
+            if (action !== 'hatchegg') continue;
+            const key = pityLogKey(log);
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            changed = true;
+            if (applyHatchToPity(account, log)) counted++;
+        }
+        if (changed) {
+            account.seenLogKeys = [...seen].slice(-100);
+            savePityState();
+            renderPityPage();
+        }
+        return counted;
+    }
+
+    async function pollPityActivityLogs(options = {}) {
+        if (pityPollPromise) return pityPollPromise;
+        pityPollPromise = performPityActivityLogPoll(options);
+        try {
+            return await pityPollPromise;
+        } finally {
+            pityPollPromise = null;
+        }
+    }
+
+    async function refreshPityEggSlots() {
+        const data = await readAtom('myDataAtom', null);
+        const tileObjects = data?.garden?.tileObjects;
+        if (!tileObjects || typeof tileObjects !== 'object') return;
+        pityEggSlots.clear();
+        for (const [slot, object] of Object.entries(tileObjects)) {
+            if (object?.objectType !== 'egg' || !object.eggId) continue;
+            const index = Number(slot);
+            if (Number.isFinite(index)) pityEggSlots.set(index, String(object.eggId));
+        }
+    }
+
+    async function preparePityTracking() {
+        await getPityCatalog();
+        const account = await ensurePityAccount();
+        await pollPityActivityLogs({ initializeOnly: true });
+        await refreshPityEggSlots();
+        return !!account;
+    }
+
+    async function waitForPityHatch(eggId, afterSequence, timeoutMs = PITY_HATCH_LOG_TIMEOUT) {
+        const deadline = performance.now() + timeoutMs;
+        while (performance.now() < deadline) {
+            await pollPityActivityLogs();
+            if (pityHatchEvents.some(event => event.sequence > afterSequence && event.eggId === eggId)) return true;
+            await sleep(100);
+        }
+        return false;
+    }
+
+    async function runPityTrackingTick() {
+        if (pityTrackingBusy) return;
+        pityTrackingBusy = true;
+        try {
+            await getPityCatalog();
+            await ensurePityAccount();
+            await Promise.all([pollPityActivityLogs(), refreshPityEggSlots()]);
+        } catch (error) {
+            console.warn('[Snail/Pity]', error);
+        } finally {
+            pityTrackingBusy = false;
+            clearTimeout(pityTrackingTimer);
+            pityTrackingTimer = setTimeout(runPityTrackingTick, document.hidden ? 2_000 : PITY_ACTIVITY_POLL_MS);
+        }
+    }
+
+    function startPityTracker() {
+        clearTimeout(pityTrackingTimer);
+        runPityTrackingTick();
+    }
+
+    async function applyLegacyPityBonus() {
+        await getPityCatalog();
+        const account = await ensurePityAccount();
+        if (!account) throw new Error('게임 계정을 확인하지 못했습니다.');
+        account.legacyAccount = true;
+        if (!account.legacyBonusApplied) {
+            for (const eggId of PITY_EGG_IDS) {
+                for (const outcome of getPityOutcomes(eggId)) {
+                    setPityCounter(account, eggId, outcome.key,
+                        Math.max(getPityCounter(account, eggId, outcome.key), Math.floor(outcome.threshold / 2)));
+                }
+            }
+            account.legacyBonusApplied = true;
+        }
+        savePityState();
+        renderPityPage();
+        return account;
     }
 
     function extractInventoryItems(raw) {
@@ -850,11 +1315,17 @@ Alerts → Settings → Floating bell [On]
             .filter(([, object]) => object?.objectType === 'egg')
             .map(([slot, object]) => ({
                 slot: Number(slot),
+                eggId: String(object.eggId || ''),
                 maturedAt: Number(object.maturedAt),
                 raw: object
             }))
             .filter(item => Number.isFinite(item.slot))
             .sort((a, b) => a.slot - b.slot);
+
+        pityEggSlots.clear();
+        for (const egg of eggTiles) {
+            if (egg.eggId) pityEggSlots.set(egg.slot, egg.eggId);
+        }
 
         return {
             emptySlots,
@@ -1059,11 +1530,16 @@ Alerts → Settings → Floating bell [On]
         if (!beginTask('hatch')) return;
         let done = 0;
         let total = 0;
+        let skipped = 0;
         let stoppedReason = '';
         lastHatchServerError = null;
         try {
             setStatus('부화 가능한 알 확인 중...');
-            await withPreset(settings.pets.hatchTeamId, settings.pets.restoreAfterHatch, async () => {
+            const canTrackPity = await preparePityTracking();
+            const hatchTeamId = settings.pity.stopBeforePity && settings.pets.pityTeamId
+                ? settings.pets.pityTeamId
+                : settings.pets.hatchTeamId;
+            await withPreset(hatchTeamId, settings.pets.restoreAfterHatch, async () => {
                 const scan = await scanGame();
                 const targets = scan.eggTiles.filter(egg => Number.isFinite(egg.maturedAt) && egg.maturedAt <= Date.now());
                 total = targets.length;
@@ -1073,8 +1549,15 @@ Alerts → Settings → Floating bell [On]
                 }
                 for (const egg of targets) {
                     if (cancelRequested) break;
+                    const pityStop = settings.pity.stopBeforePity ? getPityStopReason(egg.eggId) : null;
+                    if (pityStop) {
+                        skipped++;
+                        stoppedReason ||= `${pityCatalog?.[egg.eggId]?.name || egg.eggId} ${pityStop.label} ${pityStop.count}/${pityStop.threshold}`;
+                        continue;
+                    }
                     const signature = tileSignature(egg.raw);
                     setStatus(`부화 중 ${done + 1}/${total}`);
+                    const beforePitySequence = pityHatchSequence;
                     sendGame({ type: 'HatchEgg', slot: egg.slot });
                     const changed = await waitForTileChange(egg.slot, signature, 900);
                     if (!changed) {
@@ -1084,12 +1567,17 @@ Alerts → Settings → Floating bell [On]
                         break;
                     }
                     done++;
+                    if (settings.pity.stopBeforePity && canTrackPity && PITY_EGG_IDS.includes(egg.eggId) &&
+                        !await waitForPityHatch(egg.eggId, beforePitySequence)) {
+                        stoppedReason = '천장 기록 확인 실패';
+                        break;
+                    }
                     await sleep(5);
                 }
             });
             if (cancelRequested) setStatus(`부화 중지 · ${done}/${total}`, 'error');
             else if (stoppedReason) setStatus(`부화 중지 · ${done}/${total} · ${stoppedReason}`, 'error');
-            else if (total) setStatus(`부화 완료 ${done}개`, 'ok');
+            else if (total) setStatus(`부화 완료 ${done}개${skipped ? ` · 천장 대기 ${skipped}개` : ''}`, 'ok');
         } catch (error) {
             setStatus(error?.message || String(error), 'error');
         } finally {
@@ -1307,10 +1795,15 @@ Alerts → Settings → Floating bell [On]
             #${PANEL_ID}{position:fixed;z-index:2147483643;width:min(292px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-y:auto;box-sizing:border-box;padding:12px;border:1px solid #32404e;border-radius:12px;background:rgba(11,19,28,.96);box-shadow:0 14px 38px rgba(0,0,0,.55);color:#eef4fb;font:12px/1.35 Arial,sans-serif;backdrop-filter:blur(8px);scrollbar-width:thin}
             #${PANEL_ID}[hidden]{display:none!important}
             #${PANEL_ID} *{box-sizing:border-box}
-            #${PANEL_ID} .snail-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
-            #${PANEL_ID} .snail-title{font-size:14px;font-weight:800;cursor:grab;touch-action:none}
+            #${PANEL_ID} .snail-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:9px}
+            #${PANEL_ID} .snail-title{flex:1;min-width:0;font-size:14px;font-weight:800;cursor:grab;touch-action:none;white-space:nowrap}
             #${PANEL_ID} .snail-title:active{cursor:grabbing}
+            #${PANEL_ID} .snail-head-controls{display:flex;align-items:center;gap:1px}
+            #${PANEL_ID} .snail-page-nav,#${PANEL_ID} .snail-close{min-height:26px;height:26px;padding:0;border:0;background:transparent;color:#aeb8c5;cursor:pointer}
+            #${PANEL_ID} .snail-page-nav{width:21px;font-size:11px}
+            #${PANEL_ID} .snail-page-indicator{width:24px;color:#8f9baa;text-align:center;font-size:9px}
             #${PANEL_ID} .snail-close{width:26px;height:26px;padding:0;border:0;background:transparent;color:#aeb8c5;font-size:20px;cursor:pointer}
+            #${PANEL_ID} .snail-page[hidden]{display:none!important}
             #${PANEL_ID} .snail-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid rgba(255,255,255,.08)}
             #${PANEL_ID} .snail-toggle span{display:grid;gap:2px}
             #${PANEL_ID} .snail-toggle small{color:#8f9baa;font-size:10px}
@@ -1346,6 +1839,25 @@ Alerts → Settings → Floating bell [On]
             #${PANEL_ID} .snail-preset-row button{min-height:28px;padding:3px 5px;font-size:9px;white-space:nowrap}
             #${PANEL_ID} .snail-current-preset{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#b8c8da;font-size:9px}
             #${PANEL_ID} .snail-feed-help{margin:5px 0 0;color:#8f9baa;font-size:9px;line-height:1.4}
+            #${PANEL_ID} .snail-page-intro{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin:2px 0 8px;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.1)}
+            #${PANEL_ID} .snail-page-intro small{color:#8f9baa;text-align:right;font-size:9px}
+            #${PANEL_ID} .snail-pity-eggs{display:grid;gap:2px}
+            #${PANEL_ID} .snail-pity-list{padding-top:5px}
+            #${PANEL_ID} .snail-pity-row{display:grid;gap:4px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.055)}
+            #${PANEL_ID} .snail-pity-row:last-child{border-bottom:0}
+            #${PANEL_ID} .snail-pity-row-head{display:flex;align-items:center;justify-content:space-between;gap:5px}
+            #${PANEL_ID} .snail-pity-row-head>span{display:flex;align-items:center;gap:5px}
+            #${PANEL_ID} .snail-pity-row-head small{color:#93a4b7;font-size:9px}
+            #${PANEL_ID} .snail-pity-row-head code{color:#d8e6f6;font-size:10px}
+            #${PANEL_ID} .snail-pity-row-head button{min-height:22px;padding:2px 6px;font-size:9px}
+            #${PANEL_ID} .snail-pity-bar{height:4px;overflow:hidden;border-radius:9px;background:rgba(255,255,255,.09)}
+            #${PANEL_ID} .snail-pity-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#60a5fa,#a78bfa)}
+            #${PANEL_ID} .snail-pity-foot{margin-top:9px;color:#8f9baa;font-size:9px;line-height:1.45}
+            #${PANEL_ID} .snail-setting-label{display:grid;gap:1px}
+            #${PANEL_ID} .snail-setting-label small,#${PANEL_ID} .snail-legacy-state{color:#8f9baa;font-size:9px}
+            #${PANEL_ID} .snail-backup-actions{display:grid;gap:7px;margin-top:10px}
+            #${PANEL_ID} .snail-backup-actions button{min-height:38px}
+            #${PANEL_ID} .snail-backup-meta{margin-top:9px;padding:8px;border-radius:7px;background:rgba(255,255,255,.05);color:#aab6c5;font-size:9px;line-height:1.5}
             .snail-hide-feed-widget{position:fixed!important;left:-10000px!important;top:-10000px!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
             .snail-overlay{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:10px;background:rgba(0,0,0,.48);font-family:Arial,sans-serif}
             .snail-modal{width:min(460px,calc(100vw - 20px));max-height:calc(100vh - 20px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(255,255,255,.16);border-radius:11px;background:#20242b;color:#fff;font:11px/1.35 Arial,sans-serif;box-shadow:0 15px 50px rgba(0,0,0,.5)}
@@ -1529,6 +2041,7 @@ Alerts → Settings → Floating bell [On]
         };
         setChecked('usePresetSwitch', settings.pets.usePresetSwitch);
         setValue('hatchTeamId', settings.pets.hatchTeamId);
+        setValue('pityTeamId', settings.pets.pityTeamId);
         setValue('sellTeamId', settings.pets.sellTeamId);
         setChecked('restoreAfterHatch', settings.pets.restoreAfterHatch);
         setChecked('restoreAfterSell', settings.pets.restoreAfterSell);
@@ -1538,9 +2051,207 @@ Alerts → Settings → Floating bell [On]
         setChecked('protectStr', settings.pets.protectStr);
         setValue('strThreshold', settings.pets.strThreshold);
         setChecked('confirmBeforeSell', settings.pets.confirmBeforeSell);
+        const pityStop = panel.querySelector('[data-pity-setting="stopBeforePity"]');
+        if (pityStop) pityStop.checked = !!settings.pity.stopBeforePity;
+        const account = getPityAccountState(false);
+        const legacy = panel.querySelector('.snail-legacy-account');
+        if (legacy) {
+            legacy.checked = !!account?.legacyAccount;
+            legacy.disabled = !account || !!account.legacyBonusApplied;
+        }
+        const legacyState = panel.querySelector('.snail-legacy-state');
+        if (legacyState) {
+            legacyState.textContent = !pityAccountId
+                ? '게임 계정 연결 대기 중'
+                : account?.legacyBonusApplied
+                    ? '50% 보정 적용 완료'
+                    : '체크하면 각 천장을 50%부터 시작';
+        }
         refreshPresetDisplay();
         refreshPetGroupStates(panel);
         syncSectionCollapse(panel);
+    }
+
+    function setPanelPage(panel, page, persist = true) {
+        const nextPage = clampInt(page, 1, 3);
+        settings.ui.page = nextPage;
+        panel.querySelectorAll('.snail-page').forEach(element => {
+            element.hidden = Number(element.dataset.page) !== nextPage;
+        });
+        const indicator = panel.querySelector('.snail-page-indicator');
+        if (indicator) indicator.textContent = `${nextPage}/3`;
+        const previous = panel.querySelector('.snail-page-prev');
+        const next = panel.querySelector('.snail-page-next');
+        if (previous) previous.disabled = nextPage <= 1;
+        if (next) next.disabled = nextPage >= 3;
+        if (persist) saveSettings();
+        if (nextPage === 2) renderPityPage(panel);
+        if (!panel.hidden) {
+            const rect = panel.getBoundingClientRect();
+            panelPosition = constrainPanel(panel, rect.left, rect.top);
+        }
+    }
+
+    function renderPityPage(panel = document.getElementById(PANEL_ID)) {
+        const root = panel?.querySelector('.snail-pity-page-content');
+        if (!root) return;
+        const account = getPityAccountState(false);
+        root.innerHTML = `
+            <div class="snail-page-intro">
+                <b>알별 천장 현황</b>
+                <small>${escapeHtml(pityCatalogSource)} · 실제 부화 기록만 카운트</small>
+            </div>
+            ${!account ? '<div class="snail-warning">게임 계정을 확인하는 중입니다. 정원에 접속하면 자동으로 연결됩니다.</div>' : ''}
+            <div class="snail-pity-eggs">
+                ${PITY_EGG_IDS.map(eggId => {
+                    const egg = pityCatalog?.[eggId] || FALLBACK_PITY_CATALOG[eggId];
+                    const outcomes = getPityOutcomes(eggId);
+                    const waiting = outcomes.filter(outcome => getPityCounter(account, eggId, outcome.key) >= outcome.threshold - 1).length;
+                    return `<div class="snail-pet-group snail-collapsible" data-collapse-key="pity:${escapeHtml(eggId)}">
+                        <div class="snail-master-card">
+                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>${escapeHtml(egg?.name || eggId)}</b><small>${waiting ? `천장 대기 ${waiting}개` : '개체 · Gold · Rainbow'}</small></span></button>
+                        </div>
+                        <div class="snail-subsettings snail-pity-list">
+                            ${outcomes.map(outcome => {
+                                const count = getPityCounter(account, eggId, outcome.key);
+                                const progress = Math.min(100, count / outcome.threshold * 100);
+                                const waitingText = count >= outcome.threshold - 1 ? ' · 대기' : '';
+                                return `<div class="snail-pity-row">
+                                    <div class="snail-pity-row-head"><span><b>${escapeHtml(outcome.label)}</b><small>${outcome.chance}%${waitingText}</small></span><span><code>${count}/${outcome.threshold}</code><button type="button" data-pity-edit="${escapeHtml(eggId)}|${escapeHtml(outcome.key)}">수정</button></span></div>
+                                    <div class="snail-pity-bar"><i style="width:${progress}%"></i></div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+            <div class="snail-pity-foot">추가 부화 효과(Double Hatch)는 제외됩니다. 스크립트가 꺼져 있던 동안의 기록은 자동 복원되지 않으므로 필요하면 수동 수정하세요.</div>`;
+        root.querySelectorAll('.snail-group-toggle').forEach(button => {
+            button.onclick = () => toggleSection(panel, button.closest('.snail-collapsible'));
+        });
+        root.querySelectorAll('[data-pity-edit]').forEach(button => {
+            button.onclick = () => {
+                const separator = button.dataset.pityEdit.indexOf('|');
+                openPityCounterEditor(
+                    button.dataset.pityEdit.slice(0, separator),
+                    button.dataset.pityEdit.slice(separator + 1)
+                );
+            };
+        });
+        syncSectionCollapse(panel);
+    }
+
+    async function openPityCounterEditor(eggId, outcomeKey) {
+        await getPityCatalog();
+        const account = await ensurePityAccount();
+        const outcome = getPityOutcomes(eggId).find(item => item.key === outcomeKey);
+        if (!account || !outcome) {
+            setStatus('천장 데이터를 불러오지 못했습니다.', 'error');
+            return;
+        }
+        const count = getPityCounter(account, eggId, outcome.key);
+        const box = openModal(`${pityCatalog[eggId]?.name || eggId} · ${outcome.label}`);
+        box.insertAdjacentHTML('beforeend', `
+            <label class="snail-field">현재 실패 누적 횟수
+                <input class="snail-pity-edit-value" type="number" min="0" step="1" value="${count}">
+            </label>
+            <div class="snail-info">0 이상을 입력할 수 있습니다. 게임의 실제 서버 천장은 바뀌지 않고 이 모드의 로컬 계산값만 수정됩니다.</div>
+            <div class="snail-modal-actions"><button data-close>취소</button><button class="primary snail-pity-edit-save">확인</button></div>`);
+        const input = box.querySelector('.snail-pity-edit-value');
+        box.querySelector('[data-close]').onclick = closeModal;
+        box.querySelector('.snail-pity-edit-save').onclick = () => {
+            setPityCounter(account, eggId, outcome.key, clampInt(input.value, 0));
+            account.lastCountedAt = Date.now();
+            savePityState();
+            closeModal();
+            renderPityPage();
+            setStatus(`${outcome.label} 천장 수치 저장됨`, 'ok');
+        };
+        input.focus();
+        input.select();
+    }
+
+    async function exportSettingsFile() {
+        await getPityCatalog();
+        await ensurePityAccount();
+        const account = getPityAccountState(false);
+        const payload = {
+            format: 'snails-hidden-mod-settings',
+            schemaVersion: 1,
+            scriptVersion: SCRIPT_VERSION,
+            exportedAt: new Date().toISOString(),
+            settings,
+            pity: account ? {
+                counters: account.counters,
+                legacyAccount: account.legacyAccount,
+                legacyBonusApplied: account.legacyBonusApplied,
+                lastCountedAt: account.lastCountedAt,
+                lastResult: account.lastResult
+            } : null
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `snails-hidden-mod-settings-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1_000);
+        setStatus('설정 파일을 저장했습니다.', 'ok');
+    }
+
+    async function importSettingsFile(file, panel) {
+        let payload;
+        try {
+            payload = JSON.parse(await file.text());
+        } catch {
+            throw new Error('올바른 JSON 설정 파일이 아닙니다.');
+        }
+        if (payload?.format !== 'snails-hidden-mod-settings' || payload.schemaVersion !== 1 ||
+            !payload.settings || typeof payload.settings !== 'object') {
+            throw new Error('Snail’s Hidden Mod 설정 파일 형식이 아닙니다.');
+        }
+        if (!confirm('현재 사용자 설정과 이 계정의 천장 계산값을 파일 내용으로 바꿀까요?')) return false;
+        await getPityCatalog();
+        const account = await ensurePityAccount();
+        settings = normalizeSettings(payload.settings);
+        saveSettings();
+        if (account && payload.pity && typeof payload.pity === 'object') {
+            const importedCounters = {};
+            for (const eggId of PITY_EGG_IDS) {
+                const source = payload.pity.counters?.[eggId];
+                if (!source || typeof source !== 'object') continue;
+                const allowed = new Set(getPityOutcomes(eggId).map(outcome => outcome.key));
+                importedCounters[eggId] = Object.fromEntries(Object.entries(source)
+                    .filter(([key, value]) => allowed.has(key) && Number.isFinite(Number(value)) && Number(value) >= 0)
+                    .map(([key, value]) => [key, clampInt(value, 0)]));
+            }
+            account.counters = importedCounters;
+            account.legacyAccount = !!payload.pity.legacyAccount;
+            account.legacyBonusApplied = !!payload.pity.legacyBonusApplied;
+            account.lastCountedAt = clampInt(payload.pity.lastCountedAt, 0);
+            account.lastResult = payload.pity.lastResult && typeof payload.pity.lastResult === 'object'
+                ? { ...payload.pity.lastResult }
+                : null;
+            account.logInitialized = false;
+            account.seenLogKeys = [];
+            account.trackingStartedAt = Date.now();
+            savePityState();
+            await pollPityActivityLogs({ initializeOnly: true });
+        }
+        panel.querySelector('.snail-auto-buy').checked = settings.autoBuy;
+        panel.querySelector('.snail-auto-plant').checked = settings.autoPlant;
+        panel.querySelector('.snail-auto-feed').checked = settings.autoFeed;
+        panel.querySelectorAll('[data-interval-setting]').forEach(input => {
+            input.value = String(Math.round(settings.intervals[input.dataset.intervalSetting] / 1_000));
+        });
+        syncPetSettingsUI(panel);
+        setPanelPage(panel, settings.ui.page, false);
+        for (const name of ['autoBuy', 'autoFeed']) rescheduleAutomation(name);
+        settings.autoFeed ? checkAutoFeed({ announce: true }) : stopAutoFeed();
+        setStatus('설정과 천장 계산값을 불러왔습니다.', 'ok');
+        return true;
     }
 
     function refreshActionButtons() {
@@ -1607,59 +2318,84 @@ Alerts → Settings → Floating bell [On]
         panel.id = PANEL_ID;
         panel.hidden = true;
         panel.innerHTML = `
-            <div class="snail-head"><div class="snail-title">🐌 Snail's Hidden Mod</div><button class="snail-close" aria-label="닫기">×</button></div>
-            <label class="snail-toggle"><span><b>자동 구매</b><small>Floating Bell의 Buy all 자동 클릭</small></span><input class="snail-auto-buy" type="checkbox"></label>
-            <label class="snail-toggle"><span><b>알 자동 심기</b><small>빈 공간을 설정 규칙대로 자동 채움</small></span><input class="snail-auto-plant" type="checkbox"></label>
-            <label class="snail-toggle"><span><b>펫 자동 밥주기</b><small>Arie's Mod의 알림 임계값에 맞춰 급식</small></span><input class="snail-auto-feed" type="checkbox"></label>
-            <div class="snail-actions">
-                <button class="snail-hatch">🐣 모두 부화</button>
-                <button class="snail-sell">💰 펫 판매</button>
-                <button class="snail-egg-settings">🥚 심기 설정</button>
-                <button class="snail-pet-settings-btn">⚙ 설정</button>
+            <div class="snail-head">
+                <div class="snail-title">🐌 Snail's Hidden Mod</div>
+                <div class="snail-head-controls">
+                    <button type="button" class="snail-page-nav snail-page-prev" aria-label="이전 페이지">◀</button>
+                    <span class="snail-page-indicator">1/3</span>
+                    <button type="button" class="snail-page-nav snail-page-next" aria-label="다음 페이지">▶</button>
+                    <button type="button" class="snail-close" aria-label="닫기">×</button>
+                </div>
             </div>
-            <div class="snail-pet-settings">
-                <div class="snail-pet-group snail-collapsible" data-collapse-key="saleProtection">
-                    <div class="snail-master-card">
-                        <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>판매 보호</b><small>보호 조건에 해당하는 펫은 판매 대상에서 제외</small></span></button>
-                        <input type="checkbox" aria-label="판매 보호" data-pet-setting="useSaleProtection">
-                    </div>
-                    <div class="snail-subsettings" data-depends-on="useSaleProtection">
-                        <label class="snail-setting"><span>Gold 보호</span><input type="checkbox" data-pet-setting="protectGold"></label>
-                        <label class="snail-setting"><span>Rainbow 보호</span><input type="checkbox" data-pet-setting="protectRainbow"></label>
-                        <label class="snail-setting"><span>STR 보호</span><input type="checkbox" data-pet-setting="protectStr"></label>
-                        <label class="snail-setting"><span>최대 STR 기준</span><input type="number" min="0" max="100" data-pet-setting="strThreshold"></label>
-                    </div>
+            <div class="snail-page" data-page="1">
+                <label class="snail-toggle"><span><b>자동 구매</b><small>구매 가능한 항목을 일정 간격으로 일괄 구매</small></span><input class="snail-auto-buy" type="checkbox"></label>
+                <label class="snail-toggle"><span><b>알 자동 심기</b><small>빈 공간을 설정한 규칙에 맞춰 자동으로 채움</small></span><input class="snail-auto-plant" type="checkbox"></label>
+                <label class="snail-toggle"><span><b>펫 자동 밥주기</b><small>활성 펫의 굶주림을 확인해 설정된 먹이를 지급</small></span><input class="snail-auto-feed" type="checkbox"></label>
+                <div class="snail-actions">
+                    <button class="snail-hatch">🐣 모두 부화</button>
+                    <button class="snail-sell">💰 펫 판매</button>
+                    <button class="snail-egg-settings">🥚 심기 설정</button>
+                    <button class="snail-pet-settings-btn">⚙ 설정</button>
                 </div>
-                <div class="snail-pet-group snail-collapsible" data-collapse-key="presetSwitch">
-                    <div class="snail-master-card">
-                        <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>프리셋 변경</b><small>부화/판매 시 지정한 프리셋을 자동 적용</small></span></button>
-                        <input type="checkbox" aria-label="프리셋 변경" data-pet-setting="usePresetSwitch">
+                <div class="snail-pet-settings">
+                    <div class="snail-pet-group snail-collapsible" data-collapse-key="saleProtection">
+                        <div class="snail-master-card">
+                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>판매 보호</b><small>보호 조건에 해당하는 펫은 판매 대상에서 제외</small></span></button>
+                            <input type="checkbox" aria-label="판매 보호" data-pet-setting="useSaleProtection">
+                        </div>
+                        <div class="snail-subsettings" data-depends-on="useSaleProtection">
+                            <label class="snail-setting"><span>Gold 보호</span><input type="checkbox" data-pet-setting="protectGold"></label>
+                            <label class="snail-setting"><span>Rainbow 보호</span><input type="checkbox" data-pet-setting="protectRainbow"></label>
+                            <label class="snail-setting"><span>STR 보호</span><input type="checkbox" data-pet-setting="protectStr"></label>
+                            <label class="snail-setting"><span>최대 STR 기준</span><input type="number" min="0" max="100" data-pet-setting="strThreshold"></label>
+                        </div>
                     </div>
-                    <div class="snail-subsettings" data-depends-on="usePresetSwitch">
-                        <div class="snail-setting"><span>부화 프리셋</span><span class="snail-preset-row"><input type="text" data-pet-setting="hatchTeamId" placeholder="사용 안 함"><button type="button" data-use-current-preset="hatchTeamId">현재 프리셋</button></span></div>
-                        <label class="snail-setting"><span>부화 후 복구</span><input type="checkbox" data-pet-setting="restoreAfterHatch"></label>
-                        <div class="snail-setting"><span>판매 프리셋</span><span class="snail-preset-row"><input type="text" data-pet-setting="sellTeamId" placeholder="사용 안 함"><button type="button" data-use-current-preset="sellTeamId">현재 프리셋</button></span></div>
-                        <label class="snail-setting"><span>판매 후 복구</span><input type="checkbox" data-pet-setting="restoreAfterSell"></label>
-                        <div class="snail-setting"><span>현재 프리셋</span><code class="snail-current-preset">감지되지 않음</code></div>
+                    <div class="snail-pet-group snail-collapsible" data-collapse-key="presetSwitch">
+                        <div class="snail-master-card">
+                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>프리셋 변경</b><small>부화·천장 대기·판매용 프리셋을 자동 적용</small></span></button>
+                            <input type="checkbox" aria-label="프리셋 변경" data-pet-setting="usePresetSwitch">
+                        </div>
+                        <div class="snail-subsettings" data-depends-on="usePresetSwitch">
+                            <div class="snail-setting"><span>부화 프리셋</span><span class="snail-preset-row"><input type="text" data-pet-setting="hatchTeamId" placeholder="사용 안 함"><button type="button" data-use-current-preset="hatchTeamId">현재 프리셋</button></span></div>
+                            <div class="snail-setting"><span>천장 프리셋</span><span class="snail-preset-row"><input type="text" data-pet-setting="pityTeamId" placeholder="부화 프리셋"><button type="button" data-use-current-preset="pityTeamId">현재 프리셋</button></span></div>
+                            <label class="snail-setting"><span>부화 후 복구</span><input type="checkbox" data-pet-setting="restoreAfterHatch"></label>
+                            <div class="snail-setting"><span>판매 프리셋</span><span class="snail-preset-row"><input type="text" data-pet-setting="sellTeamId" placeholder="사용 안 함"><button type="button" data-use-current-preset="sellTeamId">현재 프리셋</button></span></div>
+                            <label class="snail-setting"><span>판매 후 복구</span><input type="checkbox" data-pet-setting="restoreAfterSell"></label>
+                            <div class="snail-setting"><span>현재 프리셋</span><code class="snail-current-preset">감지되지 않음</code></div>
+                        </div>
                     </div>
+                    <div class="snail-pet-group snail-collapsible" data-collapse-key="miscellaneous">
+                        <div class="snail-master-card">
+                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>기타 사항</b><small>판매 확인과 천장 보호 설정</small></span></button>
+                        </div>
+                        <div class="snail-subsettings">
+                            <label class="snail-setting"><span class="snail-setting-label"><b>판매 목록 팝업</b><small>판매 대상을 먼저 확인하고 선택</small></span><input type="checkbox" data-pet-setting="confirmBeforeSell"></label>
+                            <label class="snail-setting"><span class="snail-setting-label"><b>천장 부화 중단</b><small>천장 직전에서 해당 알의 부화를 멈춤</small></span><input type="checkbox" data-pity-setting="stopBeforePity"></label>
+                            <label class="snail-setting"><span class="snail-setting-label"><b>천장 이전 생성 계정</b><small class="snail-legacy-state">게임 계정 연결 대기 중</small></span><input class="snail-legacy-account" type="checkbox"></label>
+                        </div>
+                    </div>
+                    <div class="snail-pet-group snail-collapsible" data-collapse-key="intervalSettings">
+                        <div class="snail-master-card">
+                            <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>간격 설정</b><small>자동화 실행 주기</small></span></button>
+                        </div>
+                        <div class="snail-subsettings snail-interval-setting">
+                            <label class="snail-setting"><span>자동 구매 간격</span><span class="snail-interval-value"><input type="number" min="5" max="3600" step="1" value="${Math.round(settings.intervals.autoBuy / 1000)}" data-interval-setting="autoBuy">초</span></label>
+                            <label class="snail-setting"><span>굶주림 확인 간격</span><span class="snail-interval-value"><input type="number" min="2" max="3600" step="1" value="${Math.round(settings.intervals.autoFeed / 1000)}" data-interval-setting="autoFeed">초</span></label>
+                        </div>
+                    </div>
+                    <div class="snail-feed-help">자동 급식 임계값과 먹이는 Arie's Mod → Pets → Alerts / Feeding 설정을 사용합니다.</div>
                 </div>
-                <div class="snail-pet-group snail-collapsible" data-collapse-key="sellPopup">
-                    <div class="snail-master-card">
-                        <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>판매 목록 팝업</b><small>판매 전에 대상 펫을 선택·확인</small></span></button>
-                        <input type="checkbox" aria-label="판매 목록 팝업" data-pet-setting="confirmBeforeSell">
-                    </div>
-                    <div class="snail-subsettings snail-popup-help">ON이면 판매 대상을 확인하고 선택할 수 있습니다.<br>OFF이면 보호 조건을 적용한 뒤 바로 판매합니다.</div>
+            </div>
+            <div class="snail-page" data-page="2" hidden><div class="snail-pity-page-content"></div></div>
+            <div class="snail-page" data-page="3" hidden>
+                <div class="snail-page-intro"><b>설정 파일</b><small>전체 사용자 설정 백업·복원</small></div>
+                <div class="snail-info">자동화, 간격, 프리셋, 판매 보호, 심기 우선순위와 현재 계정의 천장 계산값을 JSON 파일로 저장합니다.</div>
+                <div class="snail-backup-actions">
+                    <button type="button" class="snail-export-settings">📤 설정 파일 저장</button>
+                    <button type="button" class="snail-import-settings">📥 설정 파일 불러오기</button>
+                    <input class="snail-import-file" type="file" accept="application/json,.json" hidden>
                 </div>
-                <div class="snail-pet-group snail-collapsible" data-collapse-key="intervalSettings">
-                    <div class="snail-master-card">
-                        <button type="button" class="snail-group-toggle"><span class="snail-group-chevron">▼</span><span><b>간격 설정</b><small>자동화 실행 주기</small></span></button>
-                    </div>
-                    <div class="snail-subsettings snail-interval-setting">
-                        <label class="snail-setting"><span>자동 구매 간격</span><span class="snail-interval-value"><input type="number" min="5" max="3600" step="1" value="${Math.round(settings.intervals.autoBuy / 1000)}" data-interval-setting="autoBuy">초</span></label>
-                        <label class="snail-setting"><span>굶주림 확인 간격</span><span class="snail-interval-value"><input type="number" min="2" max="3600" step="1" value="${Math.round(settings.intervals.autoFeed / 1000)}" data-interval-setting="autoFeed">초</span></label>
-                    </div>
-                </div>
-                <div class="snail-feed-help">자동 급식 임계값과 먹이는 Arie's Mod → Pets → Alerts / Feeding 설정을 사용합니다.</div>
+                <div class="snail-backup-meta">아이콘·창 위치와 API 캐시는 제외됩니다. 다른 계정에서 불러오면 천장 계산값은 현재 접속한 계정에 적용됩니다.</div>
             </div>
             <div class="snail-status"></div>`;
 
@@ -1668,6 +2404,11 @@ Alerts → Settings → Floating bell [On]
         panel.querySelector('.snail-auto-plant').checked = settings.autoPlant;
         panel.querySelector('.snail-auto-feed').checked = settings.autoFeed;
         syncPetSettingsUI(panel);
+        setPanelPage(panel, settings.ui.page, false);
+        void preparePityTracking().then(() => {
+            syncPetSettingsUI(panel);
+            renderPityPage(panel);
+        }).catch(error => console.warn('[Snail/Pity]', error));
 
         const savedPosition = readStored(POSITION_KEY, null);
         const initialPosition = constrainIcon(
@@ -1746,6 +2487,8 @@ Alerts → Settings → Floating bell [On]
         title.addEventListener('pointercancel', finishPanelDrag);
 
         panel.querySelector('.snail-close').onclick = () => panel.hidden = true;
+        panel.querySelector('.snail-page-prev').onclick = () => setPanelPage(panel, settings.ui.page - 1);
+        panel.querySelector('.snail-page-next').onclick = () => setPanelPage(panel, settings.ui.page + 1);
         panel.querySelector('.snail-auto-buy').onchange = event => {
             settings.autoBuy = event.target.checked;
             bellWarningShown = false;
@@ -1807,6 +2550,30 @@ Alerts → Settings → Floating bell [On]
             };
             input.addEventListener('change', update);
         });
+        panel.querySelectorAll('[data-pity-setting]').forEach(input => {
+            input.onchange = () => {
+                settings.pity[input.dataset.pitySetting] = input.checked;
+                saveSettings();
+                setStatus(input.checked ? '천장 직전 부화 중단 켜짐' : '천장 직전 부화 중단 꺼짐', 'ok');
+            };
+        });
+        panel.querySelector('.snail-legacy-account').onchange = async event => {
+            if (!event.target.checked) return;
+            if (!confirm('천장 시스템 도입 전에 생성된 계정인가요?\n\n확인을 누르면 모든 천장 계산값에 50% 보정을 한 번만 적용합니다.')) {
+                event.target.checked = false;
+                return;
+            }
+            event.target.disabled = true;
+            try {
+                await applyLegacyPityBonus();
+                syncPetSettingsUI(panel);
+                setStatus('이전 계정 50% 천장 보정 적용 완료', 'ok');
+            } catch (error) {
+                event.target.disabled = false;
+                event.target.checked = false;
+                setStatus(error?.message || String(error), 'error');
+            }
+        };
         panel.querySelectorAll('[data-use-current-preset]').forEach(button => {
             button.onclick = () => {
                 const current = getCurrentPresetId();
@@ -1819,9 +2586,25 @@ Alerts → Settings → Floating bell [On]
                 settings.pets[key] = current;
                 if (input) input.value = current;
                 saveSettings();
-                setStatus(`${key === 'hatchTeamId' ? '부화' : '판매'} 프리셋 저장됨`, 'ok');
+                const label = key === 'hatchTeamId' ? '부화' : key === 'pityTeamId' ? '천장' : '판매';
+                setStatus(`${label} 프리셋 저장됨`, 'ok');
             };
         });
+        const importInput = panel.querySelector('.snail-import-file');
+        panel.querySelector('.snail-export-settings').onclick = () => {
+            exportSettingsFile().catch(error => setStatus(error?.message || String(error), 'error'));
+        };
+        panel.querySelector('.snail-import-settings').onclick = () => importInput.click();
+        importInput.onchange = async () => {
+            const file = importInput.files?.[0];
+            importInput.value = '';
+            if (!file) return;
+            try {
+                await importSettingsFile(file, panel);
+            } catch (error) {
+                setStatus(error?.message || String(error), 'error');
+            }
+        };
 
         window.addEventListener('resize', () => {
             const rect = icon.getBoundingClientRect();
@@ -1884,7 +2667,8 @@ Alerts → Settings → Floating bell [On]
     function start() {
         createUI();
         startAutomationScheduler();
-        console.log("[Snail's Hidden Mod] v1.0.2 loaded");
+        startPityTracker();
+        console.log(`[Snail's Hidden Mod] v${SCRIPT_VERSION} loaded`);
     }
 
     if (document.readyState === 'loading') {
