@@ -2,7 +2,7 @@
 // @name         Snail's Hidden Mod
 // @namespace    O_"
 // @author       O_"
-// @version      1.1.3
+// @version      1.1.4
 // @description  구매 + 알 심기 + 급식 + 알/펫 관리 + 천장 계산기
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
@@ -36,7 +36,7 @@
     const AUTO_FEED_FIRST_DELAY = 2_000;
     const AUTO_FEED_INTERVAL = 900_000;
     const FEED_CONFIRM_TIMEOUT = 15_000;
-    const SCRIPT_VERSION = '1.1.3';
+    const SCRIPT_VERSION = '1.1.4';
     const MAX_ACTIVE_PETS = 3;
     const SCREEN_MARGIN = 8; // Arie's Mod Floating Bell과 동일
     const DEFAULT_RIGHT_GAP = 16;
@@ -877,7 +877,7 @@ Alerts → Settings → Floating bell [On]
     // 최신 Bad Luck Protection 규칙을 따라 부화 천장을 추적하는 기능
     // ---------------------------------------------------------------------
     function normalizePityState(raw) {
-        const output = { version: 1, accounts: {} };
+        const output = { version: 2, accounts: {} };
         if (!raw || typeof raw !== 'object' || !raw.accounts || typeof raw.accounts !== 'object') return output;
         for (const [accountId, value] of Object.entries(raw.accounts)) {
             if (!value || typeof value !== 'object') continue;
@@ -895,6 +895,11 @@ Alerts → Settings → Floating bell [On]
                 legacyAccount: !!value.legacyAccount,
                 legacyBonusApplied: !!value.legacyBonusApplied,
                 logInitialized: !!value.logInitialized,
+                logCursorInitialized: !!value.logCursorInitialized,
+                logCursorAt: clampInt(value.logCursorAt, 0),
+                logCursorKeys: Array.isArray(value.logCursorKeys)
+                    ? value.logCursorKeys.map(String).slice(-500)
+                    : [],
                 seenLogKeys: Array.isArray(value.seenLogKeys)
                     ? value.seenLogKeys.map(String).slice(-100)
                     : [],
@@ -918,6 +923,9 @@ Alerts → Settings → Floating bell [On]
             legacyAccount: false,
             legacyBonusApplied: false,
             logInitialized: false,
+            logCursorInitialized: false,
+            logCursorAt: 0,
+            logCursorKeys: [],
             seenLogKeys: [],
             trackingStartedAt: Date.now(),
             lastCountedAt: 0,
@@ -1087,12 +1095,20 @@ Alerts → Settings → Floating bell [On]
         return getActivityLogs(await readAtom('myDataAtom', null));
     }
 
+    function pityLogTimestamp(log) {
+        const raw = log?.timestamp ?? log?.performedAt ?? log?.createdAt ?? 0;
+        const numeric = Number(raw);
+        if (Number.isFinite(numeric) && numeric > 0) return numeric;
+        const parsed = typeof raw === 'string' ? Date.parse(raw) : NaN;
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    }
+
     function pityLogKey(log) {
         const params = log?.parameters || {};
         const rawPet = params.pet || {};
         const pet = rawPet.slot || rawPet.item || rawPet;
-        const timestamp = Number(log?.timestamp ?? log?.performedAt ?? log?.createdAt ?? 0);
-        if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+        const timestamp = pityLogTimestamp(log);
+        if (!timestamp) return '';
         return [timestamp, log?.action || log?.type || '', params.eggId || '', pet.id || '', pet.petSpecies || ''].join('|');
     }
 
@@ -1121,7 +1137,7 @@ Alerts → Settings → Floating bell [On]
             const previous = clampInt(eggCounters[outcome.key], 0);
             eggCounters[outcome.key] = hit ? 0 : previous + 1;
         }
-        const timestamp = clampInt(log?.timestamp ?? log?.performedAt ?? log?.createdAt ?? Date.now(), 0);
+        const timestamp = pityLogTimestamp(log) || Date.now();
         account.lastCountedAt = timestamp || Date.now();
         account.lastResult = { eggId, species, mutations: [...mutations], at: account.lastCountedAt };
         pityHatchSequence++;
@@ -1133,34 +1149,48 @@ Alerts → Settings → Floating bell [On]
     async function performPityActivityLogPoll({ initializeOnly = false } = {}) {
         const account = await ensurePityAccount();
         if (!account) return 0;
-        const logs = (await readPityActivityLogs())
+        const entries = (await readPityActivityLogs())
             .filter(log => log && typeof log === 'object')
-            .sort((a, b) => Number(a.timestamp ?? a.performedAt ?? a.createdAt ?? 0) - Number(b.timestamp ?? b.performedAt ?? b.createdAt ?? 0));
-        if (!account.logInitialized) {
-            account.seenLogKeys = logs.map(pityLogKey).filter(Boolean).slice(-100);
+            .map(log => ({ log, at: pityLogTimestamp(log), key: pityLogKey(log) }))
+            .filter(entry => entry.at > 0 && entry.key)
+            .sort((a, b) => a.at - b.at);
+        if (!account.logCursorInitialized) {
+            const latestAt = entries.at(-1)?.at || 0;
+            account.logCursorAt = latestAt;
+            account.logCursorKeys = latestAt
+                ? entries.filter(entry => entry.at === latestAt).map(entry => entry.key).slice(-500)
+                : [];
+            account.logCursorInitialized = true;
             account.logInitialized = true;
+            account.seenLogKeys = [];
             account.trackingStartedAt ||= Date.now();
             savePityState();
             renderPityPage();
             return 0;
         }
         if (initializeOnly) return 0;
-        const seen = new Set(account.seenLogKeys);
+        let cursorAt = clampInt(account.logCursorAt, 0);
+        let cursorKeys = new Set(account.logCursorKeys);
         let counted = 0;
         let changed = false;
-        for (const log of logs) {
+        for (const entry of entries) {
+            if (entry.at < cursorAt || (entry.at === cursorAt && cursorKeys.has(entry.key))) continue;
+            if (entry.at > cursorAt) {
+                cursorAt = entry.at;
+                cursorKeys = new Set();
+            }
+            cursorKeys.add(entry.key);
+            changed = true;
+            const { log } = entry;
             const action = String(log.action || log.type || '').toLowerCase();
             if (action !== 'hatchegg') continue;
-            const key = pityLogKey(log);
-            if (!key || seen.has(key)) continue;
-            seen.add(key);
-            changed = true;
             if (applyHatchToPity(account, log)) counted++;
         }
         if (changed) {
-            account.seenLogKeys = [...seen].slice(-100);
+            account.logCursorAt = cursorAt;
+            account.logCursorKeys = [...cursorKeys].slice(-500);
             savePityState();
-            renderPityPage();
+            if (counted) renderPityPage();
         }
         return counted;
     }
@@ -2261,6 +2291,9 @@ Alerts → Settings → Floating bell [On]
                 ? { ...payload.pity.lastResult }
                 : null;
             account.logInitialized = false;
+            account.logCursorInitialized = false;
+            account.logCursorAt = 0;
+            account.logCursorKeys = [];
             account.seenLogKeys = [];
             account.trackingStartedAt = Date.now();
             savePityState();
