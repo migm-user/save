@@ -2,7 +2,7 @@
 // @name         Snail's Hidden Mod
 // @namespace    O_"
 // @author       O_"
-// @version      1.1.2
+// @version      1.1.3
 // @description  구매 + 알 심기 + 급식 + 알/펫 관리 + 천장 계산기
 // @match        https://1227719606223765687.discordsays.com/*
 // @match        https://magiccircle.gg/r/*
@@ -36,7 +36,7 @@
     const AUTO_FEED_FIRST_DELAY = 2_000;
     const AUTO_FEED_INTERVAL = 900_000;
     const FEED_CONFIRM_TIMEOUT = 15_000;
-    const SCRIPT_VERSION = '1.1.2';
+    const SCRIPT_VERSION = '1.1.3';
     const MAX_ACTIVE_PETS = 3;
     const SCREEN_MARGIN = 8; // Arie's Mod Floating Bell과 동일
     const DEFAULT_RIGHT_GAP = 16;
@@ -1104,17 +1104,22 @@ Alerts → Settings → Floating bell [On]
         const species = String(pet.petSpecies || pet.species || '');
         if (!PITY_EGG_IDS.includes(eggId) || !pityCatalog?.[eggId] || !species) return false;
         const mutations = new Set((Array.isArray(pet.mutations) ? pet.mutations : [])
-            .map(value => String(value || '').toLowerCase()));
+            .map(value => typeof value === 'object'
+                ? value?.name ?? value?.mutationId ?? value?.id ?? ''
+                : value)
+            .map(value => String(value || '').trim().toLowerCase())
+            .filter(Boolean));
         const hasRainbow = mutations.has('rainbow');
         const hasGold = !hasRainbow && (mutations.has('gold') || mutations.has('golden'));
+        const eggCounters = account.counters[eggId] ||= {};
         for (const outcome of getPityOutcomes(eggId)) {
             const hit = outcome.type === 'species'
                 ? species.toLowerCase() === outcome.id.toLowerCase()
                 : outcome.id === 'Rainbow'
                     ? hasRainbow
                     : hasGold;
-            setPityCounter(account, eggId, outcome.key,
-                hit ? 0 : getPityCounter(account, eggId, outcome.key) + 1);
+            const previous = clampInt(eggCounters[outcome.key], 0);
+            eggCounters[outcome.key] = hit ? 0 : previous + 1;
         }
         const timestamp = clampInt(log?.timestamp ?? log?.performedAt ?? log?.createdAt ?? Date.now(), 0);
         account.lastCountedAt = timestamp || Date.now();
@@ -1569,7 +1574,7 @@ Alerts → Settings → Floating bell [On]
                 if (settings.pity.stopBeforePity && pityReason) {
                     skipped++;
                     stoppedReason ||= `${pityCatalog?.[egg.eggId]?.name || egg.eggId} ${pityReason.label} ${pityReason.count}/${pityReason.threshold}`;
-                    continue;
+                    break;
                 }
                 const usePityPreset = !!pityReason && !!String(settings.pets.pityTeamId || '').trim();
                 await switchHatchPreset(
